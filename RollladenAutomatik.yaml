@@ -1,0 +1,404 @@
+blueprint:
+  name: Rolladen Automatik
+  description: >
+    Zustand & Fahrtenzähler werden in externen Input-Number-Entitäten gespeichert
+  domain: automation
+
+  input:
+
+    rollladen:
+      name: Rollladen
+      selector:
+        entity:
+          domain: cover
+
+    sonnen_zustand:
+      name: Sonnenzustand (0=Nacht, 1=Wolkig, 2=Sonnig)
+      selector:
+        entity:
+
+    sonnen_azimut:
+      name: Sonnenstand – Azimut
+      selector:
+        entity:
+
+    sonnen_elevation:
+      name: Sonnenstand – Elevation
+      selector:
+        entity:
+
+    temp_aussen:
+      name: Außentemperatur
+      selector:
+        entity:
+
+    temp_vorhersage:
+      name: Temperatur Vorhersage
+      selector:
+        entity:
+
+    zustand_entity:
+      name: Zustand-Speicher
+      selector:
+        entity:
+          domain: input_number
+
+    fahrten_entity:
+      name: Fahrtenzähler-Speicher
+      selector:
+        entity:
+          domain: input_number
+
+    azi_start:
+      name: Azimut Start
+      default: 90
+      selector:
+        number:
+          min: 0
+          max: 360
+          step: 1
+
+    azi_end:
+      name: Azimut Ende
+      default: 300
+      selector:
+        number:
+          min: 0
+          max: 360
+          step: 1
+
+    elv_start:
+      name: Elevation Start
+      default: 0
+      selector:
+        number:
+          min: -20
+          max: 90
+          step: 1
+
+    elv_end:
+      name: Elevation Ende
+      default: 90
+      selector:
+        number:
+          min: -20
+          max: 90
+          step: 1
+
+    einbauwinkel:
+      name: Einbauwinkel
+      default: 45
+      selector:
+        number:
+          min: 0
+          max: 90
+          step: 1
+
+    pos_beschattung:
+      name: Position Beschattung
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+
+    pos_offen:
+      name: Position Offen
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+
+    pos_zu:
+      name: Position Zu
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+
+    temp_aussen_min:
+      name: Mindesttemperatur Außen
+      default: 18
+      selector:
+        number:
+          min: -20
+          max: 50
+          step: 1
+
+    temp_vorhersage_min:
+      name: Mindesttemperatur Vorhersage
+      default: 18
+      selector:
+        number:
+          min: -20
+          max: 50
+          step: 1
+
+    max_fahrten:
+      name: Max. Fahrten pro Tag
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 14
+          step: 1
+
+    nachts_fahren:
+      name: Nachts fahren
+      default: true
+      selector:
+        boolean:
+
+    debug:
+      name: Debug Logging aktivieren
+      default: false
+      selector:
+        boolean:
+
+mode: restart
+
+trigger:
+  - platform: state
+    entity_id: !input sonnen_zustand
+  - platform: state
+    entity_id: !input sonnen_azimut
+  - platform: state
+    entity_id: !input sonnen_elevation
+  - platform: state
+    entity_id: !input temp_aussen
+  - platform: state
+    entity_id: !input temp_vorhersage
+
+variables:
+  rollladen: !input rollladen
+  sonnen_zustand_entity: !input sonnen_zustand
+  sonnen_azimut_entity: !input sonnen_azimut
+  sonnen_elevation_entity: !input sonnen_elevation
+  temp_aussen_entity: !input temp_aussen
+  temp_vorhersage_entity: !input temp_vorhersage
+  zustand_entity: !input zustand_entity
+  fahrten_entity: !input fahrten_entity
+  azi_start: !input azi_start
+  azi_end: !input azi_end
+  elv_start: !input elv_start
+  elv_end: !input elv_end
+  einbauwinkel: !input einbauwinkel
+  pos_beschattung: !input pos_beschattung
+  pos_offen: !input pos_offen
+  pos_zu: !input pos_zu
+  temp_aussen_min: !input temp_aussen_min
+  temp_vorhersage_min: !input temp_vorhersage_min
+  max_fahrten: !input max_fahrten
+  nachts_fahren: !input nachts_fahren
+  zustand: "{{ states(zustand_entity) | int }}"
+  fahrten: "{{ states(fahrten_entity) | int }}"
+  sonne: "{{ states(sonnen_zustand_entity) | int }}"
+  azi: "{{ states(sonnen_azimut_entity) | float }}"
+  elv: "{{ states(sonnen_elevation_entity) | float }}"
+  tempA: "{{ states(temp_aussen_entity) | float }}"
+  tempV: "{{ states(temp_vorhersage_entity) | float }}"
+  debug: !input debug
+
+action:
+
+  - choose:
+      # ---------------------------------------------------------
+      # Zustand 1 Nacht → Offen (nur wenn nachts fahren aktiviert ist)
+      # ---------------------------------------------------------
+      - conditions:
+          - condition: template
+            value_template: "{{ zustand == 1 }}"
+            alias: Zustand 1 (Nacht)
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ sonne > 0 }}"
+            then:
+              - if:
+                  - condition: template
+                    value_template: "{{ nachts_fahren == 1 }}"
+                then:
+                    - service: cover.set_cover_position
+                      target:
+                        entity_id: !input rollladen
+                      data:
+                        position: !input pos_offen
+                alias: Rollladen nur öffnen wenn nachts fahren aktiv ist
+                
+              - service: input_number.set_value
+                target:
+                  entity_id: !input fahrten_entity
+                data:
+                  value: 0
+
+              - service: input_number.set_value
+                target:
+                  entity_id: !input zustand_entity
+                data:
+                  value: 2
+      # ---------------------------------------------------------
+      # Zustand 2 Nicht Beschatten → Nacht oder Beschattung 
+      # ---------------------------------------------------------
+      - conditions:
+          - condition: template
+            value_template: "{{ zustand == 2 }}"
+        
+        sequence:
+          - choose:
+              - conditions:
+                  - alias: Sonne = 0 (Nacht)
+                    condition: template
+                    value_template: "{{ sonne == 0 }}"
+                sequence:
+                  - if:
+                    - condition: template
+                      value_template: "{{ nachts_fahren }}"
+                    then:
+                        - service: cover.set_cover_position
+                          target:
+                            entity_id: !input rollladen
+                          data:
+                            position: !input pos_zu
+
+                  - service: input_number.set_value
+                    target:
+                      entity_id: !input zustand_entity
+                    data:
+                      value: 1
+                alias: Sonne = 0 (Nacht)
+
+              - conditions:
+                  - condition: template
+                    value_template: "{{ sonne == 2 }}"
+                    alias: Sonne = 2
+                  - condition: template
+                    value_template: |
+                      {{
+                        (
+                          azi >= (azi_start | int) and
+                          azi <  (azi_end   | int) and
+                          elv >= (elv_start | int) and
+                          elv <  (elv_end   | int)
+                        )
+                        or
+                        (elv >= (einbauwinkel | int))
+                      }}
+                    alias: Innerhalb Beschattungs Parameter
+                  - condition: template
+                    value_template: "{{ tempA >= (temp_aussen_min | int) }}"
+                    alias: Aktuelle Temperatur erreicht
+                  - condition: template
+                    value_template: "{{ tempV >= (temp_vorhersage_min | int) }}"
+                    alias: Vorhersage Temperatur erreicht
+                sequence:
+                  - if:
+                      - condition: template
+                        value_template: >
+                          {{ state_attr(rollladen, 'current_position') | int > (pos_beschattung | int) }}
+                        alias: Rolladen steht auf PosBeschattung
+                    then:
+                      - service: cover.set_cover_position
+                        target:
+                          entity_id: !input rollladen
+                        data:
+                          position: !input pos_beschattung
+
+                  - service: input_number.set_value
+                    target:
+                      entity_id: !input fahrten_entity
+                    data:
+                      value: "{{ fahrten + 1 }}"
+
+                  - service: input_number.set_value
+                    target:
+                      entity_id: !input zustand_entity
+                    data:
+                      value: 3
+                alias: Zustand 2 (Beschattung nicht aktiv)
+
+      # ---------------------------------------------------------
+      # Zustand 3 Beschattung aktiv → Offen oder Nacht
+      # ---------------------------------------------------------
+      - conditions:
+          - condition: template
+            value_template: "{{ zustand == 3 }}"
+        sequence:
+          - choose:
+              # → Öffnen
+              - conditions:
+                  - condition: or
+                    conditions:
+                      - alias: " Sonne = 1 und Max Fahren noch nicht überschritten"
+                        condition: template
+                        value_template: |
+                          {{
+                            (sonne == 1 and fahrten < (max_fahrten | int))
+                          }}
+                      - alias: Außerhalb Beschattungs Parameter
+                        condition: template
+                        value_template: |
+                          {{
+                              (
+                                azi < (azi_start | int)
+                                or azi > (azi_end | int)
+                                or elv < (elv_start | int)
+                                or elv > (elv_end | int)
+                              )
+                              and elv < (einbauwinkel | int)
+                          }}
+
+                alias: >-
+                  Auffahren wenn Wolken (Sonne =1) oder Fenster Außerhalb des Sonnen Bereichs
+                sequence:
+                  - if:
+                    - condition: template
+                      value_template: >
+                        {{ state_attr(rollladen, 'current_position') | int == (pos_beschattung | int) }}
+                      alias: Rolladen steht auf PosBeschattung
+                    then:
+                    - service: cover.set_cover_position
+                      target:
+                        entity_id: !input rollladen
+                      data:
+                        position: !input pos_offen
+
+                  - service: input_number.set_value
+                    target:
+                      entity_id: !input zustand_entity
+                    data:
+                      value: 2
+
+              # → Nacht
+              - conditions:
+                  - condition: template
+                    value_template: "{{ sonne == 0 }}"
+                sequence:
+                  - if:
+                      - condition: template
+                        value_template: "{{ nachts_fahren }}"
+                    then:
+                      - service: cover.set_cover_position
+                        target:
+                          entity_id: !input rollladen
+                        data:
+                          position: !input pos_zu
+
+                  - service: input_number.set_value
+                    target:
+                      entity_id: !input zustand_entity
+                    data:
+                      value: 1
+      # ---------------------------------------------------------
+      # Zustand ?? → Korrigieren
+      # ---------------------------------------------------------
+    default:
+        - service: input_number.set_value
+          target:
+            entity_id: !input zustand_entity
+          data:
+            value: 1

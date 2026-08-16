@@ -1,0 +1,230 @@
+blueprint:
+  name: Rollladensteuerung über Event-Taster (Kurz/Lang/Stop/Doppelklick)
+  description: >
+    ## 🧭 Universelle Rollladensteuerung über Event‑Taster
+
+    Dieser Blueprint steuert einen Rollladen mithilfe frei wählbarer Taster,
+    die ihre Aktionen als `state_changed`‑Events an Home Assistant senden.
+
+    Unterstützt werden **Kurz‑ und Langdruck**, **Loslassen**,  
+    **Stop bei erneutem Tastendruck** sowie **Doppelklick für 50 %**.
+
+    Der Blueprint funktioniert mit allen Geräten, die Tastendrücke als
+    Event‑Entities bereitstellen, z. B.:
+
+    ```
+    event.<gerät>_<id>_taste1
+    event.<gerät>_<id>_taste2
+    ```
+
+    Die tatsächliche Tastaktion (press_short, press_long, press_long_release)
+    wird aus dem Attribut `new_state.attributes.event_type` ausgelesen.
+
+    ---
+
+    ## 🔧 Unterstützte Funktionen
+
+    ### ✔ Kurz‑Druck
+    * AUF‑Taste → Rollladen öffnen  
+    * ZU‑Taste → Rollladen schließen  
+
+    ### ✔ Lang‑Druck
+    * AUF‑Taste → Rollladen fährt hoch, solange gedrückt  
+    * ZU‑Taste → Rollladen fährt runter, solange gedrückt  
+
+    ### ✔ Loslassen
+    * Stoppt die Bewegung nach einem Langdruck  
+
+    ### ✔ Stop bei erneutem Tastendruck
+    Wenn der Rollladen gerade fährt und eine beliebige konfigurierte Taste erneut
+    gedrückt wird, stoppt der Rollladen sofort.
+
+    ### ✔ Doppelklick (50 %)
+    Zwei schnelle Kurz‑Drucke derselben Taste (innerhalb von 0,4 s) fahren den
+    Rollladen automatisch auf **50 %**.
+
+    ---
+
+    ## 🎛️ Konfiguration
+
+    ### 🟦 1. Taster auswählen
+    Du kannst bis zu **zwei AUF‑Taster** und **zwei ZU‑Taster** zuweisen.
+    Jeder Taster muss ein Event‑Entity aus dem Domain `event` sein.
+
+    Beispiele:
+    ```
+    event.schalter_wohnzimmer_taste1
+    event.funkmodul_arbeitszimmer_button2
+    event.zigbee_remote_button3
+    ```
+
+    Nicht benötigte Taster können leer bleiben.
+
+    ### 🟦 2. Rollladen auswählen
+    Wähle das Cover‑Entity deines Rollladens, z. B.:
+
+    ```
+    cover.wohnzimmer_rollo
+    cover.dachfenster_links
+    cover.klf200_kanal_3
+    ```
+
+    ---
+
+    ## 🧩 Hinweise
+
+    * Der Blueprint reagiert ausschließlich auf `state_changed`‑Events.
+    * Die Taster müssen Events mit `event_type` im Attribut liefern.
+    * Optional nicht belegte Taster werden automatisch ignoriert.
+    * Die Doppelklick‑Erkennung funktioniert nur bei `press_short`.
+
+    ---
+
+    ## 🏁 Fertig!
+    Nach dem Speichern ist die Automation sofort einsatzbereit.
+    Der Blueprint ist universell einsetzbar und funktioniert mit allen
+    Event‑basierten Tastern in Home Assistant.
+
+  domain: automation
+
+  input:
+    hm_auf_1:
+      name: Taste Auf (Haupt)
+      selector:
+        entity:
+          domain: event
+
+    hm_auf_2:
+      name: Taste Auf (optional)
+      default: ""
+      selector:
+        entity:
+          domain: event
+
+    hm_zu_1:
+      name: Taste Zu (Haupt)
+      selector:
+        entity:
+          domain: event
+
+    hm_zu_2:
+      name: Taste Zu (optional)
+      default: ""
+      selector:
+        entity:
+          domain: event
+
+    cover:
+      name: Rollladen
+      selector:
+        entity:
+          domain: cover
+
+mode: restart
+
+trigger:
+  - platform: event
+    event_type: state_changed
+
+variables:
+  cover: !input cover
+  auf_taster: [!input hm_auf_1, !input hm_auf_2]
+  zu_taster: [!input hm_zu_1, !input hm_zu_2]
+
+condition:
+  - condition: template
+    value_template: >
+      {% set eid = trigger.event.data.entity_id %}
+      {% set auf = auf_taster | reject('equalto', '') | list %}
+      {% set zu = zu_taster | reject('equalto', '') | list %}
+      {{ eid in auf or eid in zu }}
+
+action:
+  - variables:
+      event_type: "{{ trigger.event.data.new_state.attributes.event_type }}"
+      eid: "{{ trigger.event.data.entity_id }}"
+      last_click_eid: "{{ this.last_click_eid | default('') }}"
+      last_click_time: "{{ this.last_click_time | default(0) }}"
+      now_ts: "{{ as_timestamp(now()) }}"
+
+  - choose:
+
+      # --- DOPPELKLICK: 50% ---
+      - conditions: >
+          {{ event_type == 'press_short'
+             and eid == last_click_eid
+             and (now_ts - last_click_time) < 0.4 }}
+        sequence:
+          - service: cover.set_cover_position
+            target:
+              entity_id: "{{ cover }}"
+            data:
+              position: 50
+          - variables:
+              last_click_eid: ""
+              last_click_time: 0
+
+      # --- STOPPEN wenn Rollladen fährt und Taste erneut gedrückt ---
+      - conditions: >
+          {{ (is_state(cover, 'opening') or is_state(cover, 'closing'))
+             and eid in (auf_taster + zu_taster) }}
+        sequence:
+          - service: cover.stop_cover
+            target:
+              entity_id: "{{ cover }}"
+
+      # --- AUF: Kurz ---
+      - conditions: >
+          {{ event_type == 'press_short' and eid in auf_taster }}
+        sequence:
+          - service: cover.open_cover
+            target:
+              entity_id: "{{ cover }}"
+
+      # --- ZU: Kurz ---
+      - conditions: >
+          {{ event_type == 'press_short' and eid in zu_taster }}
+        sequence:
+          - service: cover.close_cover
+            target:
+              entity_id: "{{ cover }}"
+
+      # --- AUF: Lang ---
+      - conditions: >
+          {{ event_type == 'press_long' and eid in auf_taster }}
+        sequence:
+          - service: cover.open_cover
+            target:
+              entity_id: "{{ cover }}"
+
+      # --- AUF: Loslassen ---
+      - conditions: >
+          {{ event_type == 'press_long_release' and eid in auf_taster }}
+        sequence:
+          - service: cover.stop_cover
+            target:
+              entity_id: "{{ cover }}"
+
+      # --- ZU: Lang ---
+      - conditions: >
+          {{ event_type == 'press_long' and eid in zu_taster }}
+        sequence:
+          - service: cover.close_cover
+            target:
+              entity_id: "{{ cover }}"
+
+      # --- ZU: Loslassen ---
+      - conditions: >
+          {{ event_type == 'press_long_release' and eid in zu_taster }}
+        sequence:
+          - service: cover.stop_cover
+            target:
+              entity_id: "{{ cover }}"
+
+      # --- ERSTER KLICK merken (immer ganz zum Schluss!) ---
+      - conditions: >
+          {{ event_type == 'press_short' }}
+        sequence:
+          - variables:
+              last_click_eid: "{{ eid }}"
+              last_click_time: "{{ now_ts }}"
