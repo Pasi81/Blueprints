@@ -197,7 +197,7 @@ variables:
   nachts_fahren: !input nachts_fahren
   zustand: "{{ states(zustand_entity) | int }}"
   fahrten: "{{ states(fahrten_entity) | int }}"
-  sonne: "{{ states(sonnen_zustand_entity) | int }}"
+  sonne: "{{ states(sonnen_zustand_entity) | default(0) | int }}"
   azi: "{{ states(sonnen_azimut_entity) | float }}"
   elv: "{{ states(sonnen_elevation_entity) | float }}"
   tempA: "{{ states(temp_aussen_entity) | float }}"
