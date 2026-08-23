@@ -1,3 +1,7 @@
+# v1.16 (2026-08-23)
+#  - Added: Optionaler zweiter Cover-Kanal als Sensoren-Kanal des Aktors.
+#    Dieser wird beim Ausfahren immer auf 100 % gesetzt und beim Einfahren nicht angesteuert.
+#  - Change: Der optionale zweite Kanal wird als „Sensoren-Kanal“ bezeichnet.
 # v1.15 (2026-08-23)
 #  - Change: Die Markise wird jetzt direkt über eine Cover-Entität in Prozent gesteuert.
 #    Einfahren setzt die Position immer auf 0 %, die Ausfahrposition ist konfigurierbar.
@@ -18,7 +22,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.15
+  name: Markisenwächter v1.16
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -87,6 +91,17 @@ blueprint:
           max: 100
           unit_of_measurement: "%"
           mode: box
+    sensors_channel:
+      name: Optionaler Sensoren-Kanal
+      description: |
+        Optionaler zweiter **Cover-Kanal** des Aktors für die Sensorensteuerung.
+        Dieser Kanal wird beim Ausfahren immer auf 100 % gesetzt.
+        Leer lassen, wenn kein Sensoren-Kanal verwendet wird.
+      default: []
+      selector:
+        entity:
+          domain: cover
+          multiple: false
     wind_sensor:
       name: Windsensor-Entität
       description: |
@@ -391,6 +406,7 @@ action:
       state_helper: !input state_helper
       marquise_cover_entity: !input marquise_cover
       extend_position: !input marquise_extend_position
+      sensors_channel_entity: !input sensors_channel
       retract_max: !input automatic_retract_count_threshold
       light_sensor_var: !input light_sensor
       light_thresh_var: !input light_threshold
@@ -700,6 +716,15 @@ action:
                       entity_id: "{{ marquise_cover_entity }}"
                     data:
                       position: "{{ extend_position | int(100) }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ sensors_channel_entity not in [none, '', [], 'none'] }}"
+                    then:
+                      - service: cover.set_cover_position
+                        target:
+                          entity_id: "{{ sensors_channel_entity }}"
+                        data:
+                          position: 100
                   - service: input_text.set_value
                     target:
                       entity_id: !input state_helper
@@ -887,6 +912,15 @@ action:
                   entity_id: "{{ marquise_cover_entity }}"
                 data:
                   position: "{{ extend_position | int(100) }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ sensors_channel_entity not in [none, '', [], 'none'] }}"
+                then:
+                  - service: cover.set_cover_position
+                    target:
+                      entity_id: "{{ sensors_channel_entity }}"
+                    data:
+                      position: 100
               - alias: Benachrichtigung Wind lässt nach
                 service: notify.notify
                 data:
