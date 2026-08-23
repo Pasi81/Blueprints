@@ -1,0 +1,888 @@
+
+# v1.11 (2026-08-16)
+#  - Fix: Automatisches Ausfahren bei nachlassendem Wind prüft nun bei aktiver Nachtsteuerung zwingend, ob Helligkeit/Tageslicht gegeben ist
+
+
+blueprint:
+  name: Markisenwächter v1.10
+  description: |
+    Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
+    ### Funktionen:
+    * **Windüberwachung:** Fährt die Markise automatisch ein, wenn eine konfigurierbare Windgeschwindigkeit überschritten wird.
+    * **Regenüberwachung:** Fährt die Markise automatisch ein, wenn eine konfigurierbare Regenmenge innerhalb eines Zeitraums erkannt wird.
+    * **Wind-Timeout:** Fährt die Markise sicherheitshalber ein, wenn der Windsensor für eine bestimmte Zeit nicht erreichbar ist.
+    * **Sensor-Überwachung:** Sendet eine Benachrichtigung, wenn wichtige Sensoren wie Wind, Markisenstatus oder die Steuerungs-Switches nicht erreichbar sind.
+    * **Automatisches Ausfahren:** Fährt die Markise wieder aus, wenn der Wind unter den Grenzwert fällt und kein Regen erkannt wird (sowie bei aktiver Nachtsteuerung ausreichend Helligkeit/Tageslicht herrscht).
+    * **Zählerschutz:** Zählt die automatischen Einfahrvorgänge. Bei Überschreiten eines Grenzwertes wird eine Benachrichtigung gesendet und ein weiteres Ausfahren unterbunden, um ein häufiges, unnötiges Ein- und Ausfahren zu verhindern.
+    * **Manuelle Steuerung:** Erkennt manuelle Eingriffe (Aus- und Einfahren) und setzt interne Zähler zurück oder passt Status-Helfer an.
+    * **Täglicher Reset:** Setzt den Einfahr-Zähler und die internen Status-Helfer täglich zurück.
+    * **Tag-/Nachtautomatik:** Fährt die Markise bei Sonnenauf-/untergang (oder Über-/Unterschreiten eines eingestellten Helligkeitswertes) automatisch aus/ein.
+    ### Notwendige Konfiguration:
+    Dieser Blueprint erfordert die Konfiguration der folgenden Helfer (helpers) in Home Assistant:
+    1.  Ein `input_boolean` für den Status „Markise automatisch eingefahren“.
+    2.  Ein `input_boolean` für den Status „Markise automatisch ausgefahren“.
+    3.  Ein `counter` um die Anzahl der automatischen Einfahrvorgänge zu zählen.
+    4.  Ein `sensor` (z.B. ein Statistik-Sensor) für die akkumulierte Regenmenge über einen bestimmten Zeitraum.
+    
+  domain: automation
+  
+  input:
+    marquise_retract_switch:
+      name: Markise Einfahr-Switch
+      description: |
+        **Switch/Button/Cover-Entity** womit die Markise eingefahren wird.
+        (z.B. `switch.markise_einfahren`)
+      selector:
+        entity:
+          domain:
+            - switch
+            - button
+            - cover
+    marquise_extend_switch:
+      name: Markise Ausfahr-Switch
+      description: |
+        **Switch/Button/Cover-Entity** womit die Markise ausgefahren wird.
+        (z.B. `switch.markise_ausfahren`)
+      selector:
+        entity:
+          domain:
+            - switch
+            - button
+            - cover
+    wind_sensor:
+      name: Windsensor-Entität
+      description: |
+        Der **Numerische Sensor** der die aktuelle Windgeschwindigkeit in km/h misst.
+        (z.B. `sensor.ecowitt_ws90_wind_max`)
+      selector:
+        entity:
+          domain: sensor
+          multiple: false
+          filter:
+            - device_class: wind_speed
+    enable_night_control:
+      name: Tag-/Nachtsteuerung aktivieren
+      description: |
+        Schalter, ob die Markise in der Nacht automatisch eingefahren und am Morgen automatisch ausgefahren werden soll.
+      default: false
+      selector:
+        boolean: {}
+    light_sensor:
+      name: Helligkeitssensor (optional)
+      description: |
+        Ein **Helligkeitssensor in Lux (lx)**.
+        Wenn kein Sensor angegeben ist, wird automatisch die **Sun-Integration** (`sensor.sun_next_rising` / `sensor.sun_next_setting`) genutzt.
+      default: []
+      selector:
+        entity:
+          domain: sensor
+          multiple: false
+          filter:
+            - device_class: illuminance
+    light_threshold:
+      name: Helligkeitsschwellenwert (Lux)
+      description: |
+        **Schwellenwert in Lux (lx)**, bei dessen Unterschreitung die Markise eingefahren und bei dessen Überschreitung die Markise ausgefahren wird.
+      default: 5000
+      selector:
+        number:
+          min: 0
+          max: 100000
+          unit_of_measurement: lx
+          mode: box
+    time_offset:
+      name: Offset für Sonnenauf- und untergang (Minuten) / Zeitliche Entprellung für Helligkeitsüber-/unterschreitung
+      description: |
+        **Mit Helligkeitssensor:**
+        Der eingestellte Helligkeitswert muss um X Minuten unter-/überschritten werden, damit die Markise ein-/ausfährt.
+        Das soll verhindern, dass kurzzeitig vorbeiziehende Wolken die Markise zum "Pendeln" bringen.
+        
+        **Ohne Helligkeitssensor:**
+        Die Markise wird X Minuten **vor** Sonnenuntergang eingefahren und X Minuten **nach** Sonnenaufgang ausgefahren
+        (basierend auf der **Sun-Integration** und deren Entitäten `sensor.sun_next_rising` / `sensor.sun_next_setting`).
+      default: 15
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: min
+          mode: box
+    rain_sensor:
+      name: Regensensor-Entität
+      description: |-
+        Der **Numerische Sensor**, der die Regenmenge misst.
+        (z.B. `sensor.rain_last_5_minutes`)
+        
+        Erfordert einen Statistik-Sensor; der Niederschlag sollte in einem möglichst kurzen
+        Zeitraum summiert werden, um schnell auf Regen reagieren zu können. Der Zeitraum darf
+        jedoch auch nicht **zu** kurz sein (viele Regensensoren lösen nur in 1mm-Schritten auf).
+        
+        **Anlegen des Helfers:**
+        `Einstellungen → Geräte & Dienste → Helfer → Helfer erstellen → Statistik`
+        * **Entität:** dein Regensensor (=Quellsensor für die Berechnung)
+        * **Statistikmerkmal:** Summe der Differenzen
+        * **Stichprobengröße:** [Quellsensor-Updates / Minute] x [Maximalalter] + [kleiner Puffer]
+        * **Maximalalter:** z.B. 5 Minuten
+        * **Letzten Messwert behalten:** nein
+        * **Genauigkeit:** 1
+      selector:
+        entity:
+          domain: sensor
+          multiple: false
+          filter:
+            - device_class:
+                - volume
+                - precipitation
+    marquise_status_sensor:
+      name: Markisenstatus-Sensor
+      description: |
+        Der **Binärsensor**, der den aktuellen Status der Markise anzeigt.
+        (`on` = Markise ausgefahren, `off` = Markise eingefahren)
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: false
+          filter:
+            - device_class:
+                - window
+                - opening
+    wind_max_threshold:
+      name: Maximale Windschwelle (km/h)
+      description: |
+        Der numerische Wert in km/h, ab dem die Markise automatisch eingefahren wird.
+        (Standard: 27 km/h)
+      default: 27
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: km/h
+          mode: box
+    wind_min_threshold:
+      name: Minimale Windschwelle (km/h)
+      description: |
+        Der numerische Wert in km/h, unter den die Windgeschwindigkeit fallen muss, damit die Markise wieder automatisch ausgefahren wird.
+        (Standard: 20 km/h)
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: km/h
+          mode: box
+    automatic_extend_timeout_minutes:
+      name: Zeitspanne für automatisches Ausfahren (Minuten)
+      description: |
+        Die Zeit in Minuten, die vergehen muss, nachdem Wind und Regen unter den Grenzwert gefallen sind, bevor die Markise wieder ausfährt.
+        (Standard: 30 Minuten)
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: min
+          mode: box
+    rain_threshold:
+      name: Regenschwelle (mm)
+      description: |
+        Der numerische Wert in mm/m² (aus der **Regensensor-Entität**), ab dem die Markise eingefahren wird.
+        (Standard: 0.7 mm/m²)
+      default: 0.7
+      selector:
+        number:
+          step: 0.1
+          min: 0
+          max: 10
+          unit_of_measurement: mm/m²
+          mode: box
+    wind_sensor_timeout_minutes:
+      name: Windsensor-Timeout (Minuten)
+      description: |
+        Die Zeitspanne in Minuten, nach der ein fehlender Windsensor die Markise automatisch einfährt.
+        (Standard: 15 Minuten)
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: min
+          mode: box
+    sensors_timeout_minutes:
+      name: Sensoren-Timeout (Minuten)
+      description: |
+        Die Zeitspanne in Minuten, nach der fehlende Sensoren eine Warnung auslösen und versucht wird, die Markise automatisch einzufahren.
+        (Standard: 15 Minuten)
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: min
+          mode: box
+    automatic_retract_count_threshold:
+      name: Zählergrenzwert für automatisches Einfahren
+      description: |
+        Der numerische Wert, wie oft die Markise automatisch eingefahren werden darf, bevor eine Benachrichtigung gesendet wird.
+        (Standard: 2 mal)
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    automatic_retracted_helper:
+      name: Helfer für "automatisch eingefahren"
+      description: |
+        Ein `input_boolean`-Helfer, der den Status anzeigt, wenn die Markise automatisch eingefahren wurde.
+      selector:
+        entity:
+          domain: input_boolean
+    automatic_extended_helper:
+      name: Helfer für "automatisch ausgefahren"
+      description: |
+        Ein `input_boolean`-Helfer, der den Status anzeigt, wenn die Markise automatisch ausgefahren wurde.
+      selector:
+        entity:
+          domain: input_boolean
+    retract_counter_helper:
+      name: Helfer für Einfahrzähler
+      description: |
+        Ein `counter`-Helfer, der die Anzahl der automatischen Einfahrvorgänge zählt.
+      selector:
+        entity:
+          domain: counter
+    reset_time:
+      name: Tägliche Reset-Uhrzeit
+      description: |
+        Die Uhrzeit, zu der der Zähler und die Status-Helfer täglich zurückgesetzt werden sollen.
+        (Standard: 00:00:00)
+      default: "00:00:00"
+      selector:
+        time:
+
+trigger_variables:
+  light_sensor_input: !input light_sensor
+  time_offset_input: !input time_offset
+
+trigger:
+  # Auslöser: Windgeschwindigkeit über maximalem Schwellenwert
+  - platform: numeric_state
+    id: trigger_windsensor_max_threshold
+    entity_id: !input wind_sensor
+    above: !input wind_max_threshold
+  # Auslöser: Regenmenge über Schwellenwert
+  - platform: numeric_state
+    id: trigger_rain_statistic_sensor
+    entity_id: !input rain_sensor
+    above: !input rain_threshold
+  # Auslöser: Markise wird manuell ausgefahren
+  - platform: state
+    id: trigger_marquise_opened
+    entity_id: !input marquise_status_sensor
+    from: "off"
+    to: "on"
+  # Auslöser: Markise wird manuell eingefahren
+  - platform: state
+    id: trigger_marquise_closed
+    entity_id: !input marquise_status_sensor
+    from: "on"
+    to: "off"
+  # Auslöser: Windgeschwindigkeit unter minimalem Schwellenwert für eine bestimmte Zeit
+  - platform: numeric_state
+    id: trigger_windsensor_min_threshold
+    entity_id: !input wind_sensor
+    below: !input wind_min_threshold
+    for:
+      minutes: !input automatic_extend_timeout_minutes
+  # Auslöser: Windsensor ist nicht verfügbar oder unbekannt für eine bestimmte Zeit
+  - platform: state
+    id: trigger_windsensor_unknown
+    entity_id: !input wind_sensor
+    to:
+      - unavailable
+      - unknown
+    for:
+      minutes: !input wind_sensor_timeout_minutes
+  # Auslöser: Mehrere Sensoren (Wind, Status, Steuerung) sind nicht verfügbar oder unbekannt
+  - platform: state
+    id: trigger_sensors_unknown
+    entity_id:
+      - !input wind_sensor
+      - !input marquise_status_sensor
+      - !input marquise_retract_switch
+      - !input marquise_extend_switch
+    to:
+      - unavailable
+      - unknown
+    for:
+      minutes: !input sensors_timeout_minutes
+  # Auslöser: Der Einfahr-Zähler überschreitet den konfigurierten Grenzwert
+  - platform: numeric_state
+    id: trigger_retract_counter
+    entity_id: !input retract_counter_helper
+    above: !input automatic_retract_count_threshold
+  # Auslöser: Tägliches Reset um Mitternacht
+  - platform: time
+    id: trigger_reset_time
+    at: !input reset_time
+
+  # --- MIT HELLIGKEITSSENSOR ---
+  # Helligkeit unter Schwellenwert
+  - platform: numeric_state
+    id: trigger_light_retract
+    entity_id: !input light_sensor
+    below: !input light_threshold
+    for:
+      minutes: !input time_offset
+  # Helligkeit über Schwellenwert
+  - platform: numeric_state
+    id: trigger_light_extend
+    entity_id: !input light_sensor
+    above: !input light_threshold
+    for:
+      minutes: !input time_offset
+  
+  # --- OHNE HELLIGKEITSSENSOR (FALLBACK SUN-Entity) ---
+  # Zeitpunkt: x Minuten vor Sonnenuntergang
+  - platform: template
+    id: trigger_sun_retract
+    value_template: >-
+      {% set sensor = light_sensor_input %}
+      {% set setting = states('sensor.sun_next_setting') %}
+      {% set offset = time_offset_input | int(0) %}
+      {% if (sensor is none or sensor == [] or sensor == '' or sensor == 'none') and setting not in ['unknown', 'unavailable', 'None'] %}
+        {{ now() >= (setting | as_datetime | as_local) - timedelta(minutes=offset) }}
+      {% else %}
+        false
+      {% endif %}
+  # Zeitpunkt: x Minuten nach Sonnenaufgang
+  - platform: template
+    id: trigger_sun_extend
+    value_template: >-
+      {% set sensor = light_sensor_input %}
+      {% set rising = states('sensor.sun_next_rising') %}
+      {% set offset = time_offset_input | int(0) %}
+      {% if (sensor is none or sensor == [] or sensor == '' or sensor == 'none') and rising not in ['unknown', 'unavailable', 'None'] %}
+        {{ now() >= (rising | as_datetime | as_local) + timedelta(minutes=offset) }}
+      {% else %}
+        false
+      {% endif %}
+
+condition: []
+
+action:
+  - variables:
+      wind_speed: !input wind_sensor
+      rain_amount: !input rain_sensor
+      retract_count: !input retract_counter_helper
+      retract_entity: !input marquise_retract_switch
+      extend_entity: !input marquise_extend_switch
+      retract_max: !input automatic_retract_count_threshold
+      light_sensor_var: !input light_sensor
+      light_thresh_var: !input light_threshold
+      enable_night: !input enable_night_control
+      retract_service: >
+        {% if retract_entity.startswith('button.') %} button.press
+        {% elif retract_entity.startswith('cover.') %} cover.close_cover
+        {% else %} homeassistant.turn_on {% endif %}
+      extend_service: >
+        {% if extend_entity.startswith('button.') %} button.press
+        {% elif extend_entity.startswith('cover.') %} cover.open_cover
+        {% else %} homeassistant.turn_on {% endif %}
+      is_daytime: >
+        {% if not enable_night %}
+          true
+        {% else %}
+          {% set sensor = light_sensor_var %}
+          {% set threshold = light_thresh_var | float(0) %}
+          {% if sensor is defined and sensor not in [none, [], '', 'none'] and states(sensor) not in ['unknown', 'unavailable'] %}
+            {{ states(sensor) | float(0) >= threshold }}
+          {% else %}
+            {% set rising = states('sensor.sun_next_rising') %}
+            {% set setting = states('sensor.sun_next_setting') %}
+            {% if rising not in ['unknown', 'unavailable', 'None'] and setting not in ['unknown', 'unavailable', 'None'] %}
+              {{ (rising | as_datetime) > (setting | as_datetime) }}
+            {% else %}
+              true
+            {% endif %}
+          {% endif %}
+        {% endif %}
+  - choose:
+      # Aktion: Starkwind erkannt
+      - conditions:
+          - condition: trigger
+            id:
+              - trigger_windsensor_max_threshold
+        sequence:
+          # Wenn Markise bereits geschlossen ist, tue nichts
+          - if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state: "off"
+            then: []
+            alias: Wenn Markise geschlossen -> tue nichts
+          # Wenn Markise geöffnet ist, fahre sie ein
+          - alias: Wenn Markise geöffnet -> Einfahren
+            if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state: "on"
+            then:
+              - service: "{{ retract_service }}"
+                target:
+                  entity_id: "{{ retract_entity }}"
+              - service: counter.increment
+                target:
+                  entity_id: !input retract_counter_helper
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: !input automatic_retracted_helper
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input automatic_extended_helper
+              - alias: Benachrichtigung Starkwind
+                service: notify.notify
+                data:
+                  title: "Starkwind erkannt"
+                  message: "Markise wurde wegen Starkwind ({{ states(wind_speed) }} km/h) automatisch eingefahren."
+          # Wenn Markisenstatus unbekannt ist, fahre sie sicherheitshalber ein
+          - alias: Wenn Markisenstatus unbekannt -> Einfahren
+            if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state:
+                  - unknown
+                  - unavailable
+            then:
+              - service: "{{ retract_service }}"
+                target:
+                  entity_id: "{{ retract_entity }}"
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: !input automatic_retracted_helper
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input automatic_extended_helper
+              - alias: Benachrichtigung Starkwind (Status unbekannt)
+                service: notify.notify
+                data:
+                  title: "Starkwind - Markisenstatus unbekannt"
+                  message: "Markise wurde wegen Starkwind ({{ states(wind_speed) }} km/h) automatisch eingefahren. ACHTUNG: Markisenstatus unbekannt!"
+        alias: Starkwind
+      # Aktion: Windsensor-Timeout
+      - conditions:
+          - condition: trigger
+            id:
+              - trigger_windsensor_unknown
+        sequence:
+          # Wenn Markise geschlossen ist, tue nichts
+          - alias: Markise geschlossen -> tue nichts
+            if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state: "off"
+            then: []
+          # Wenn Markisenstatus unbekannt, schließe Markise sicherheitshalber
+          - alias: Markisenstatus unbekannt -> schließe Markise
+            if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state:
+                  - unavailable
+                  - unknown
+            then:
+              - service: "{{ retract_service }}"
+                target:
+                  entity_id: "{{ retract_entity }}"
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: !input automatic_retracted_helper
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input automatic_extended_helper
+              - alias: Benachrichtigung Windsensor-Timeout
+                service: notify.notify
+                data:
+                  title: "Windsensor-Timeout"
+                  message: "Markise wird eingefahren, da der Windsensor nicht erreichbar ist."
+          # Wenn Markise geöffnet ist, schließe Markise
+          - alias: Markise geöffnet -> schließe Markise
+            if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state: "on"
+            then:
+              - service: "{{ retract_service }}"
+                target:
+                  entity_id: "{{ retract_entity }}"
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: !input automatic_retracted_helper
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input automatic_extended_helper
+              - alias: Benachrichtigung Windsensor-Timeout
+                service: notify.notify
+                data:
+                  title: "Windsensor-Timeout"
+                  message: "Markise wird eingefahren, da der Windsensor nicht erreichbar ist."
+        alias: Windsensor-Timeout
+      # Aktion: Regen erkannt
+      - conditions:
+          - condition: trigger
+            id:
+              - trigger_rain_statistic_sensor
+        sequence:
+          # Wenn Markise geschlossen ist, tue nichts
+          - alias: Markise geschlossen -> tue nichts
+            if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state: "off"
+            then: []
+          # Wenn Markisenstatus unbekannt, schließe Markise sicherheitshalber
+          - alias: Markisenstatus unbekannt -> schließe Markise
+            if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state:
+                  - unavailable
+                  - unknown
+            then:
+              - service: "{{ retract_service }}"
+                target:
+                  entity_id: "{{ retract_entity }}"
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: !input automatic_retracted_helper
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input automatic_extended_helper
+              - alias: Benachrichtigung Regen (Status unbekannt)
+                service: notify.notify
+                data:
+                  title: "Regen erkannt - Markisenstatus unbekannt"
+                  message: "Markise wird wegen Regen ({{ states(rain_amount) }} mm) eingefahren. Status unbekannt!"
+          # Wenn Markise geöffnet ist, schließe Markise
+          - alias: Markise geöffnet -> schließe Markise
+            if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state: "on"
+            then:
+              - service: "{{ retract_service }}"
+                target:
+                  entity_id: "{{ retract_entity }}"
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: !input automatic_retracted_helper
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input automatic_extended_helper
+              - alias: Benachrichtigung Regen erkannt
+                service: notify.notify
+                data:
+                  title: "Regen erkannt"
+                  message: "Markise wird wegen Regen ({{ states(rain_amount) }} mm) eingefahren."
+        alias: Regen
+      # Aktion: Tag-/Nachtsteuerung -> Einfahren bei Dunkelheit / Abend
+      - conditions:
+          - condition: template
+            value_template: "{{ enable_night }}"
+          - condition: trigger
+            id:
+              - trigger_light_retract
+              - trigger_sun_retract
+        sequence:
+          - if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state: "on"
+            then:
+              - service: "{{ retract_service }}"
+                target:
+                  entity_id: "{{ retract_entity }}"
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: !input automatic_retracted_helper
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input automatic_extended_helper
+              - alias: Benachrichtigung Dunkelheit
+                service: notify.notify
+                data:
+                  title: "Dunkelheit / Abend"
+                  message: "Markise wird wegen geringer Helligkeit bzw. Sonnenuntergang automatisch eingefahren."
+          - if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state:
+                  - unknown
+                  - unavailable
+            then:
+              - service: "{{ retract_service }}"
+                target:
+                  entity_id: "{{ retract_entity }}"
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: !input automatic_retracted_helper
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input automatic_extended_helper
+              - alias: Benachrichtigung Dunkelheit
+                service: notify.notify
+                data:
+                  title: "Dunkelheit / Abend - Markisenstatus unbekannt"
+                  message: "Versuche, Markise wegen geringer Helligkeit bzw. Sonnenuntergang automatisch einzufahren."
+          - if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state: "off"
+            then:
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: !input automatic_retracted_helper
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input automatic_extended_helper
+        alias: Tag/Nacht - Einfahren
+      # Aktion: Tag-/Nachtsteuerung -> Ausfahren bei Helligkeit / Morgen
+      - conditions:
+          - condition: template
+            value_template: "{{ enable_night }}"
+          - condition: trigger
+            id:
+              - trigger_light_extend
+              - trigger_sun_extend
+        sequence:
+          - if:
+              - condition: and
+                conditions:
+                  - condition: numeric_state
+                    entity_id: !input wind_sensor
+                    below: !input wind_max_threshold
+                  - condition: numeric_state
+                    entity_id: !input rain_sensor
+                    below: !input rain_threshold
+                  - condition: template
+                    value_template: "{{ states(retract_count) | int(0) <= (retract_max | int(0)) }}"
+            then:
+              - if:
+                  - condition: state
+                    entity_id: !input marquise_status_sensor
+                    state: "off"
+                then:
+                  - service: "{{ extend_service }}"
+                    target:
+                      entity_id: "{{ extend_entity }}"
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: !input automatic_retracted_helper
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: !input automatic_extended_helper
+                  - alias: Benachrichtigung Helligkeit
+                    service: notify.notify
+                    data:
+                      title: "Helligkeit / Morgen"
+                      message: "Markise wurde wegen ausreichender Helligkeit bzw. Sonnenaufgang automatisch ausgefahren."
+        alias: Tag/Nach - Ausfahren
+      # Aktion: Manuelles Ausfahren
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: trigger
+                id:
+                  - trigger_marquise_opened
+              - condition: state
+                entity_id: !input automatic_extended_helper
+                state: "off"
+        sequence:
+          - if:
+              - condition: numeric_state
+                entity_id: !input wind_sensor
+                above: !input wind_max_threshold
+            then:
+              - alias: Benachrichtigung manuell Ausgefahren trotz Starkwind
+                service: notify.notify
+                data:
+                  title: "Markisenwächter - WARNUNG"
+                  message: "Die Markise wurde trotz Starkwind manuell ausgefahren. Das automatische Einfahren ist bis zum UNTERschreiten des Schwellenwertes INAKTIV!"
+          - if:
+              - condition: numeric_state
+                entity_id: !input retract_counter_helper
+                above: 0
+            then:
+              - service: counter.reset
+                target:
+                  entity_id: !input retract_counter_helper
+              - alias: Benachrichtigung Manuell Ausgefahren
+                service: notify.notify
+                data:
+                  title: "Markise manuell ausgefahren"
+                  message: "Der Markisen-Zähler wurde durch manuelles Ausfahren zurückgesetzt."
+        alias: Markise manuell ausgefahren
+      # Markise wurde automatisch ausgefahren - verhindert Fallback auf den Default-Block
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: trigger
+                id:
+                  - trigger_marquise_opened
+              - condition: state
+                entity_id: !input automatic_extended_helper
+                state: "on"
+        sequence: [] # Tue nichts, da die Aktion bereits durch einen anderen Block ausgelöst wurde
+        alias: Automatisch ausgefahren - tue nichts
+      # Aktion: Manuelles Einfahren
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: trigger
+                id:
+                  - trigger_marquise_closed
+              - condition: state
+                entity_id: !input automatic_retracted_helper
+                state: "off"
+        sequence:
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input automatic_extended_helper
+        alias: Markise manuell eingefahren
+      # Markise wurde automatisch eingefahren - verhindert Fallback auf den Default-Block
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: trigger
+                id:
+                  - trigger_marquise_closed
+              - condition: state
+                entity_id: !input automatic_retracted_helper
+                state: "on"
+        sequence: [] # Tue nichts, da die Aktion bereits durch einen anderen Block ausgelöst wurde
+        alias: Automatisch eingefahren - tue nichts
+      # Aktion: Zählerschutz-Benachrichtigung
+      - conditions:
+          - condition: trigger
+            id:
+              - trigger_retract_counter
+        sequence:
+          - alias: Benachrichtigung Zählerschutz
+            service: notify.notify
+            data:
+              title: "Markisen-Zählerschutz aktiv"
+              message: "Markise wurde in kurzer Zeit {{ states(retract_count) }} Mal automatisch eingefahren. Automatisches Ausfahren ist gesperrt."
+        alias: Benachrichtigung Ausfahrsperre aktiv
+      # Aktion: Tägliches Reset
+      - conditions:
+          - condition: trigger
+            id:
+              - trigger_reset_time
+        sequence:
+          - service: counter.reset
+            target:
+              entity_id: !input retract_counter_helper
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input automatic_extended_helper
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input automatic_retracted_helper
+        alias: Zeitlicher Reset der Automation
+      # Aktion: Sensor-Fehlerwarnung
+      - conditions:
+          - condition: trigger
+            id:
+              - trigger_sensors_unknown
+        sequence:
+          - if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state: "on"
+            then:
+              - service: "{{ retract_service }}"
+                target:
+                  entity_id: "{{ retract_entity }}"
+              - service: counter.increment
+                target:
+                  entity_id: !input retract_counter_helper
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: !input automatic_retracted_helper
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input automatic_extended_helper
+              - alias: Benachrichtigung Sensor-Fehler (Einfahren)
+                service: notify.notify
+                data:
+                  title: "Markisenwächter - Sensor-Fehler"
+                  message: "Markise wurde eingefahren, da kritische Sensoren nicht erreichbar sind."
+          - if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state:
+                  - "off"
+            then:
+              - alias: Benachrichtigung Sensor-Fehler
+                service: notify.notify
+                data:
+                  title: "Markisenwächter - Sensor-Fehler"
+                  message: "Achtung! Einer oder mehrere kritische Sensoren des Markisenwächters sind nicht verfügbar!"
+          - if:
+              - condition: state
+                entity_id: !input marquise_status_sensor
+                state:
+                  - "unavailable"
+                  - "unknown"
+            then:
+              - service: "{{ retract_service }}"
+                target:
+                  entity_id: "{{ retract_entity }}"
+              - alias: Benachrichtigung Sensor-Fehler (Status unbekannt)
+                service: notify.notify
+                data:
+                  title: "Markisenwächter - Sensor-Fehler"
+                  message: "Achtung! Einer oder mehrere kritische Sensoren des Markisenwächters sind nicht verfügbar! Markise wird sicherheitshalber eingefahren."
+        alias: "Warnung: Sensor(en) nicht verfügbar"
+      # Aktion: Wind lässt nach, Markise wieder ausfahren
+      - conditions:
+          - condition: trigger
+            id:
+              - trigger_windsensor_min_threshold
+        sequence:
+          - if:
+              - condition: and
+                conditions:
+                  - condition: state
+                    entity_id: !input automatic_retracted_helper
+                    state: "on"
+                  - condition: numeric_state
+                    entity_id: !input rain_sensor
+                    below: !input rain_threshold
+                  - condition: template
+                    value_template: "{{ is_daytime | bool }}"
+            then:
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input automatic_retracted_helper
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: !input automatic_extended_helper
+              - service: "{{ extend_service }}"
+                target:
+                  entity_id: "{{ extend_entity }}"
+              - alias: Benachrichtigung Wind lässt nach
+                service: notify.notify
+                data:
+                  title: "Wind lässt nach"
+                  message: "Windstärke ({{ states(wind_speed) }} km/h) und Regen ({{ states(rain_amount) }} mm) sind unter den Schwellenwert gefallen. Markise wird wieder ausgefahren."
+        alias: Wind lässt nach
+    # Standardaktion, wenn kein Trigger zutrifft
+    default:
+      - alias: Benachrichtigung unbekannter Fehler
+        service: notify.notify
+        data:
+          title: "Markisenwächter - Fehler"
+          message: "Ein Fehler oder eine unbekannte Situation ist aufgetreten. Bitte überprüfe das Log und die Sensoren/Steuerungen."
+
+mode: single
