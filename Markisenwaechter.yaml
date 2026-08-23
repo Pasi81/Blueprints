@@ -1,3 +1,7 @@
+# v1.13 (2026-08-23)
+#  - Change: Die drei Helfer (2x input_boolean, 1x counter) wurden durch einen einzigen
+#    input_text-Helfer ersetzt, der den Zustand als JSON speichert:
+#    {"retracted": false, "extended": false, "retract_count": 0}
 # v1.12 (2026-08-23)
 #  - Change: Regensensor ist jetzt ein binärer Sensor (on/off) statt eines numerischen Statistik-Sensors mit Schwellenwert
 #  - Removed: Eingabe "Regenschwelle (mm)" entfällt, da nicht mehr benötigt
@@ -6,7 +10,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.12
+  name: Markisenwächter v1.13
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -16,14 +20,18 @@ blueprint:
     * **Sensor-Überwachung:** Sendet eine Benachrichtigung, wenn wichtige Sensoren wie Wind, Markisenstatus oder die Steuerungs-Switches nicht erreichbar sind.
     * **Automatisches Ausfahren:** Fährt die Markise wieder aus, wenn der Wind unter den Grenzwert fällt und kein Regen erkannt wird (sowie bei aktiver Nachtsteuerung ausreichend Helligkeit/Tageslicht herrscht).
     * **Zählerschutz:** Zählt die automatischen Einfahrvorgänge. Bei Überschreiten eines Grenzwertes wird eine Benachrichtigung gesendet und ein weiteres Ausfahren unterbunden, um ein häufiges, unnötiges Ein- und Ausfahren zu verhindern.
-    * **Manuelle Steuerung:** Erkennt manuelle Eingriffe (Aus- und Einfahren) und setzt interne Zähler zurück oder passt Status-Helfer an.
-    * **Täglicher Reset:** Setzt den Einfahr-Zähler und die internen Status-Helfer täglich zurück.
+    * **Manuelle Steuerung:** Erkennt manuelle Eingriffe (Aus- und Einfahren) und setzt interne Zähler zurück oder passt den Status an.
+    * **Täglicher Reset:** Setzt den Einfahr-Zähler und den internen Status täglich zurück.
     * **Tag-/Nachtautomatik:** Fährt die Markise bei Sonnenauf-/untergang (oder Über-/Unterschreiten eines eingestellten Helligkeitswertes) automatisch aus/ein.
     ### Notwendige Konfiguration:
-    Dieser Blueprint erfordert die Konfiguration der folgenden Helfer (helpers) in Home Assistant:
-    1.  Ein `input_boolean` für den Status „Markise automatisch eingefahren".
-    2.  Ein `input_boolean` für den Status „Markise automatisch ausgefahren".
-    3.  Ein `counter` um die Anzahl der automatischen Einfahrvorgänge zu zählen.
+    Dieser Blueprint erfordert die Konfiguration eines einzigen Status-Helfers in Home Assistant:
+    1.  Ein `input_text`-Helfer, in dem der interne Status als JSON gespeichert wird.
+        **Anlegen des Helfers:**
+        `Einstellungen → Geräte & Dienste → Helfer → Helfer erstellen → Text`
+        * **Minimale Länge:** 0
+        * **Maximale Länge:** 255 (oder höher)
+        * **Anfangswert (empfohlen):** `{"retracted": false, "extended": false, "retract_count": 0}`
+        (Ist der Anfangswert leer, verwendet der Blueprint automatisch diesen Standardwert.)
     
   domain: automation
   
@@ -204,31 +212,18 @@ blueprint:
           min: 1
           max: 10
           mode: box
-    automatic_retracted_helper:
-      name: Helfer für "automatisch eingefahren"
+    state_helper:
+      name: Status-Helfer (JSON)
       description: |
-        Ein `input_boolean`-Helfer, der den Status anzeigt, wenn die Markise automatisch eingefahren wurde.
+        Ein `input_text`-Helfer, in dem der gesamte interne Status als JSON gespeichert wird:
+        `{"retracted": bool, "extended": bool, "retract_count": int}`
       selector:
         entity:
-          domain: input_boolean
-    automatic_extended_helper:
-      name: Helfer für "automatisch ausgefahren"
-      description: |
-        Ein `input_boolean`-Helfer, der den Status anzeigt, wenn die Markise automatisch ausgefahren wurde.
-      selector:
-        entity:
-          domain: input_boolean
-    retract_counter_helper:
-      name: Helfer für Einfahrzähler
-      description: |
-        Ein `counter`-Helfer, der die Anzahl der automatischen Einfahrvorgänge zählt.
-      selector:
-        entity:
-          domain: counter
+          domain: input_text
     reset_time:
       name: Tägliche Reset-Uhrzeit
       description: |
-        Die Uhrzeit, zu der der Zähler und die Status-Helfer täglich zurückgesetzt werden sollen.
+        Die Uhrzeit, zu der der Zähler und der interne Status täglich zurückgesetzt werden sollen.
         (Standard: 00:00:00)
       default: "00:00:00"
       selector:
@@ -237,6 +232,8 @@ blueprint:
 trigger_variables:
   light_sensor_input: !input light_sensor
   time_offset_input: !input time_offset
+  state_helper_input: !input state_helper
+  retract_threshold_input: !input automatic_retract_count_threshold
 
 trigger:
   # Auslöser: Windgeschwindigkeit über maximalem Schwellenwert
@@ -290,11 +287,16 @@ trigger:
       - unknown
     for:
       minutes: !input sensors_timeout_minutes
-  # Auslöser: Der Einfahr-Zähler überschreitet den konfigurierten Grenzwert
-  - platform: numeric_state
+  # Auslöser: Der Einfahr-Zähler (aus dem JSON-Status-Helfer) überschreitet den konfigurierten Grenzwert
+  - platform: template
     id: trigger_retract_counter
-    entity_id: !input retract_counter_helper
-    above: !input automatic_retract_count_threshold
+    value_template: >-
+      {% set raw = states(state_helper_input) %}
+      {% if raw not in ['unknown', 'unavailable', none, ''] %}
+        {{ (raw | from_json).retract_count | default(0) | int(0) > (retract_threshold_input | int(0)) }}
+      {% else %}
+        false
+      {% endif %}
   # Auslöser: Tägliches Reset um Mitternacht
   - platform: time
     id: trigger_reset_time
@@ -348,13 +350,25 @@ action:
   - variables:
       wind_speed: !input wind_sensor
       rain_sensor_var: !input rain_sensor
-      retract_count: !input retract_counter_helper
+      state_helper: !input state_helper
       retract_entity: !input marquise_retract_switch
       extend_entity: !input marquise_extend_switch
       retract_max: !input automatic_retract_count_threshold
       light_sensor_var: !input light_sensor
       light_thresh_var: !input light_threshold
       enable_night: !input enable_night_control
+      # Aktuellen Status aus dem JSON-Helfer lesen (mit Fallback auf Standardwerte)
+      current_state: >-
+        {% set raw = states(state_helper) %}
+        {% set default = {"retracted": false, "extended": false, "retract_count": 0} %}
+        {% if raw in ['unknown', 'unavailable', none, ''] %}
+          {{ default }}
+        {% else %}
+          {{ raw | from_json }}
+        {% endif %}
+      is_retracted: "{{ current_state.retracted | default(false) }}"
+      is_extended: "{{ current_state.extended | default(false) }}"
+      retract_count: "{{ current_state.retract_count | default(0) | int(0) }}"
       retract_service: >
         {% if retract_entity.startswith('button.') %} button.press
         {% elif retract_entity.startswith('cover.') %} cover.close_cover
@@ -405,15 +419,11 @@ action:
               - service: "{{ retract_service }}"
                 target:
                   entity_id: "{{ retract_entity }}"
-              - service: counter.increment
+              - service: input_text.set_value
                 target:
-                  entity_id: !input retract_counter_helper
-              - service: input_boolean.turn_on
-                target:
-                  entity_id: !input automatic_retracted_helper
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: !input automatic_extended_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count + 1} | tojson }}"
               - alias: Benachrichtigung Starkwind
                 service: notify.notify
                 data:
@@ -431,12 +441,11 @@ action:
               - service: "{{ retract_service }}"
                 target:
                   entity_id: "{{ retract_entity }}"
-              - service: input_boolean.turn_on
+              - service: input_text.set_value
                 target:
-                  entity_id: !input automatic_retracted_helper
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: !input automatic_extended_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count} | tojson }}"
               - alias: Benachrichtigung Starkwind (Status unbekannt)
                 service: notify.notify
                 data:
@@ -468,12 +477,11 @@ action:
               - service: "{{ retract_service }}"
                 target:
                   entity_id: "{{ retract_entity }}"
-              - service: input_boolean.turn_on
+              - service: input_text.set_value
                 target:
-                  entity_id: !input automatic_retracted_helper
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: !input automatic_extended_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count} | tojson }}"
               - alias: Benachrichtigung Windsensor-Timeout
                 service: notify.notify
                 data:
@@ -489,12 +497,11 @@ action:
               - service: "{{ retract_service }}"
                 target:
                   entity_id: "{{ retract_entity }}"
-              - service: input_boolean.turn_on
+              - service: input_text.set_value
                 target:
-                  entity_id: !input automatic_retracted_helper
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: !input automatic_extended_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count} | tojson }}"
               - alias: Benachrichtigung Windsensor-Timeout
                 service: notify.notify
                 data:
@@ -526,12 +533,11 @@ action:
               - service: "{{ retract_service }}"
                 target:
                   entity_id: "{{ retract_entity }}"
-              - service: input_boolean.turn_on
+              - service: input_text.set_value
                 target:
-                  entity_id: !input automatic_retracted_helper
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: !input automatic_extended_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count} | tojson }}"
               - alias: Benachrichtigung Regen (Status unbekannt)
                 service: notify.notify
                 data:
@@ -547,12 +553,11 @@ action:
               - service: "{{ retract_service }}"
                 target:
                   entity_id: "{{ retract_entity }}"
-              - service: input_boolean.turn_on
+              - service: input_text.set_value
                 target:
-                  entity_id: !input automatic_retracted_helper
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: !input automatic_extended_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count} | tojson }}"
               - alias: Benachrichtigung Regen erkannt
                 service: notify.notify
                 data:
@@ -576,12 +581,11 @@ action:
               - service: "{{ retract_service }}"
                 target:
                   entity_id: "{{ retract_entity }}"
-              - service: input_boolean.turn_on
+              - service: input_text.set_value
                 target:
-                  entity_id: !input automatic_retracted_helper
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: !input automatic_extended_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count} | tojson }}"
               - alias: Benachrichtigung Dunkelheit
                 service: notify.notify
                 data:
@@ -597,12 +601,11 @@ action:
               - service: "{{ retract_service }}"
                 target:
                   entity_id: "{{ retract_entity }}"
-              - service: input_boolean.turn_on
+              - service: input_text.set_value
                 target:
-                  entity_id: !input automatic_retracted_helper
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: !input automatic_extended_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count} | tojson }}"
               - alias: Benachrichtigung Dunkelheit
                 service: notify.notify
                 data:
@@ -613,12 +616,11 @@ action:
                 entity_id: !input marquise_status_sensor
                 state: "off"
             then:
-              - service: input_boolean.turn_on
+              - service: input_text.set_value
                 target:
-                  entity_id: !input automatic_retracted_helper
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: !input automatic_extended_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count} | tojson }}"
         alias: Tag/Nacht - Einfahren
       # Aktion: Tag-/Nachtsteuerung -> Ausfahren bei Helligkeit / Morgen
       - conditions:
@@ -639,7 +641,7 @@ action:
                     entity_id: !input rain_sensor
                     state: "off"
                   - condition: template
-                    value_template: "{{ states(retract_count) | int(0) <= (retract_max | int(0)) }}"
+                    value_template: "{{ retract_count <= (retract_max | int(0)) }}"
             then:
               - if:
                   - condition: state
@@ -649,12 +651,11 @@ action:
                   - service: "{{ extend_service }}"
                     target:
                       entity_id: "{{ extend_entity }}"
-                  - service: input_boolean.turn_off
+                  - service: input_text.set_value
                     target:
-                      entity_id: !input automatic_retracted_helper
-                  - service: input_boolean.turn_on
-                    target:
-                      entity_id: !input automatic_extended_helper
+                      entity_id: !input state_helper
+                    data:
+                      value: "{{ {'retracted': false, 'extended': true, 'retract_count': retract_count} | tojson }}"
                   - alias: Benachrichtigung Helligkeit
                     service: notify.notify
                     data:
@@ -668,9 +669,8 @@ action:
               - condition: trigger
                 id:
                   - trigger_marquise_opened
-              - condition: state
-                entity_id: !input automatic_extended_helper
-                state: "off"
+              - condition: template
+                value_template: "{{ not is_extended }}"
         sequence:
           - if:
               - condition: numeric_state
@@ -683,13 +683,14 @@ action:
                   title: "Markisenwächter - WARNUNG"
                   message: "Die Markise wurde trotz Starkwind manuell ausgefahren. Das automatische Einfahren ist bis zum UNTERschreiten des Schwellenwertes INAKTIV!"
           - if:
-              - condition: numeric_state
-                entity_id: !input retract_counter_helper
-                above: 0
+              - condition: template
+                value_template: "{{ retract_count > 0 }}"
             then:
-              - service: counter.reset
+              - service: input_text.set_value
                 target:
-                  entity_id: !input retract_counter_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': is_retracted, 'extended': is_extended, 'retract_count': 0} | tojson }}"
               - alias: Benachrichtigung Manuell Ausgefahren
                 service: notify.notify
                 data:
@@ -703,9 +704,8 @@ action:
               - condition: trigger
                 id:
                   - trigger_marquise_opened
-              - condition: state
-                entity_id: !input automatic_extended_helper
-                state: "on"
+              - condition: template
+                value_template: "{{ is_extended }}"
         sequence: [] # Tue nichts, da die Aktion bereits durch einen anderen Block ausgelöst wurde
         alias: Automatisch ausgefahren - tue nichts
       # Aktion: Manuelles Einfahren
@@ -715,13 +715,14 @@ action:
               - condition: trigger
                 id:
                   - trigger_marquise_closed
-              - condition: state
-                entity_id: !input automatic_retracted_helper
-                state: "off"
+              - condition: template
+                value_template: "{{ not is_retracted }}"
         sequence:
-          - service: input_boolean.turn_off
+          - service: input_text.set_value
             target:
-              entity_id: !input automatic_extended_helper
+              entity_id: !input state_helper
+            data:
+              value: "{{ {'retracted': is_retracted, 'extended': false, 'retract_count': retract_count} | tojson }}"
         alias: Markise manuell eingefahren
       # Markise wurde automatisch eingefahren - verhindert Fallback auf den Default-Block
       - conditions:
@@ -730,9 +731,8 @@ action:
               - condition: trigger
                 id:
                   - trigger_marquise_closed
-              - condition: state
-                entity_id: !input automatic_retracted_helper
-                state: "on"
+              - condition: template
+                value_template: "{{ is_retracted }}"
         sequence: [] # Tue nichts, da die Aktion bereits durch einen anderen Block ausgelöst wurde
         alias: Automatisch eingefahren - tue nichts
       # Aktion: Zählerschutz-Benachrichtigung
@@ -745,7 +745,7 @@ action:
             service: notify.notify
             data:
               title: "Markisen-Zählerschutz aktiv"
-              message: "Markise wurde in kurzer Zeit {{ states(retract_count) }} Mal automatisch eingefahren. Automatisches Ausfahren ist gesperrt."
+              message: "Markise wurde in kurzer Zeit {{ retract_count }} Mal automatisch eingefahren. Automatisches Ausfahren ist gesperrt."
         alias: Benachrichtigung Ausfahrsperre aktiv
       # Aktion: Tägliches Reset
       - conditions:
@@ -753,15 +753,11 @@ action:
             id:
               - trigger_reset_time
         sequence:
-          - service: counter.reset
+          - service: input_text.set_value
             target:
-              entity_id: !input retract_counter_helper
-          - service: input_boolean.turn_off
-            target:
-              entity_id: !input automatic_extended_helper
-          - service: input_boolean.turn_off
-            target:
-              entity_id: !input automatic_retracted_helper
+              entity_id: !input state_helper
+            data:
+              value: "{{ {'retracted': false, 'extended': false, 'retract_count': 0} | tojson }}"
         alias: Zeitlicher Reset der Automation
       # Aktion: Sensor-Fehlerwarnung
       - conditions:
@@ -777,15 +773,11 @@ action:
               - service: "{{ retract_service }}"
                 target:
                   entity_id: "{{ retract_entity }}"
-              - service: counter.increment
+              - service: input_text.set_value
                 target:
-                  entity_id: !input retract_counter_helper
-              - service: input_boolean.turn_on
-                target:
-                  entity_id: !input automatic_retracted_helper
-              - service: input_boolean.turn_off
-                target:
-                  entity_id: !input automatic_extended_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count + 1} | tojson }}"
               - alias: Benachrichtigung Sensor-Fehler (Einfahren)
                 service: notify.notify
                 data:
@@ -827,21 +819,19 @@ action:
           - if:
               - condition: and
                 conditions:
-                  - condition: state
-                    entity_id: !input automatic_retracted_helper
-                    state: "on"
+                  - condition: template
+                    value_template: "{{ is_retracted }}"
                   - condition: state
                     entity_id: !input rain_sensor
                     state: "off"
                   - condition: template
                     value_template: "{{ is_daytime | bool }}"
             then:
-              - service: input_boolean.turn_off
+              - service: input_text.set_value
                 target:
-                  entity_id: !input automatic_retracted_helper
-              - service: input_boolean.turn_on
-                target:
-                  entity_id: !input automatic_extended_helper
+                  entity_id: !input state_helper
+                data:
+                  value: "{{ {'retracted': false, 'extended': true, 'retract_count': retract_count} | tojson }}"
               - service: "{{ extend_service }}"
                 target:
                   entity_id: "{{ extend_entity }}"
