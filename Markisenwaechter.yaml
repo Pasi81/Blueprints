@@ -1,3 +1,7 @@
+# v1.14 (2026-08-23)
+#  - Change: Markisenstatus-Sensor ist jetzt ein numerischer Prozent-Sensor (0-100%) statt eines
+#    Binärsensors. Neuer Schwellenwert-Input bestimmt, ab wann die Markise als "ausgefahren" gilt
+#    (100% = ausgefahren, 0% = eingefahren).
 # v1.13 (2026-08-23)
 #  - Change: Die drei Helfer (2x input_boolean, 1x counter) wurden durch einen einzigen
 #    input_text-Helfer ersetzt, der den Zustand als JSON speichert:
@@ -10,7 +14,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.13
+  name: Markisenwächter v1.14
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -131,16 +135,26 @@ blueprint:
     marquise_status_sensor:
       name: Markisenstatus-Sensor
       description: |
-        Der **Binärsensor**, der den aktuellen Status der Markise anzeigt.
-        (`on` = Markise ausgefahren, `off` = Markise eingefahren)
+        Der **Numerische Sensor**, der die aktuelle Position der Markise in Prozent angibt.
+        (100 % = vollständig ausgefahren, 0 % = vollständig eingefahren)
+        (z.B. `sensor.markise_position`)
       selector:
         entity:
-          domain: binary_sensor
+          domain: sensor
           multiple: false
-          filter:
-            - device_class:
-                - window
-                - opening
+    marquise_status_threshold:
+      name: Schwellenwert Markisenstatus (%)
+      description: |
+        Der Prozentwert, ab dem die Markise als „ausgefahren" gilt.
+        Werte **unterhalb** dieses Wertes gelten als „eingefahren", Werte **ab** diesem Wert als „ausgefahren".
+        (Standard: 50 %)
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+          mode: box
     wind_max_threshold:
       name: Maximale Windschwelle (km/h)
       description: |
@@ -246,18 +260,16 @@ trigger:
     id: trigger_rain_detected
     entity_id: !input rain_sensor
     to: "on"
-  # Auslöser: Markise wird manuell ausgefahren
-  - platform: state
+  # Auslöser: Markise überschreitet den Positions-Schwellenwert -> gilt als "ausgefahren"
+  - platform: numeric_state
     id: trigger_marquise_opened
     entity_id: !input marquise_status_sensor
-    from: "off"
-    to: "on"
-  # Auslöser: Markise wird manuell eingefahren
-  - platform: state
+    above: !input marquise_status_threshold
+  # Auslöser: Markise unterschreitet den Positions-Schwellenwert -> gilt als "eingefahren"
+  - platform: numeric_state
     id: trigger_marquise_closed
     entity_id: !input marquise_status_sensor
-    from: "on"
-    to: "off"
+    below: !input marquise_status_threshold
   # Auslöser: Windgeschwindigkeit unter minimalem Schwellenwert für eine bestimmte Zeit
   - platform: numeric_state
     id: trigger_windsensor_min_threshold
@@ -357,6 +369,8 @@ action:
       light_sensor_var: !input light_sensor
       light_thresh_var: !input light_threshold
       enable_night: !input enable_night_control
+      marquise_status_var: !input marquise_status_sensor
+      marquise_status_threshold_var: !input marquise_status_threshold
       # Aktuellen Status aus dem JSON-Helfer lesen (mit Fallback auf Standardwerte)
       current_state: >-
         {% set raw = states(state_helper) %}
@@ -369,6 +383,14 @@ action:
       is_retracted: "{{ current_state.retracted | default(false) }}"
       is_extended: "{{ current_state.extended | default(false) }}"
       retract_count: "{{ current_state.retract_count | default(0) | int(0) }}"
+      # Ob die Markisenposition (in %) über dem Schwellenwert liegt -> gilt als "ausgefahren"
+      is_open: >-
+        {% set s = states(marquise_status_var) %}
+        {% if s not in ['unknown', 'unavailable'] %}
+          {{ s | float(0) >= (marquise_status_threshold_var | float(0)) }}
+        {% else %}
+          false
+        {% endif %}
       retract_service: >
         {% if retract_entity.startswith('button.') %} button.press
         {% elif retract_entity.startswith('cover.') %} cover.close_cover
@@ -404,17 +426,15 @@ action:
         sequence:
           # Wenn Markise bereits geschlossen ist, tue nichts
           - if:
-              - condition: state
-                entity_id: !input marquise_status_sensor
-                state: "off"
+              - condition: template
+                value_template: "{{ not is_open }}"
             then: []
             alias: Wenn Markise geschlossen -> tue nichts
           # Wenn Markise geöffnet ist, fahre sie ein
           - alias: Wenn Markise geöffnet -> Einfahren
             if:
-              - condition: state
-                entity_id: !input marquise_status_sensor
-                state: "on"
+              - condition: template
+                value_template: "{{ is_open }}"
             then:
               - service: "{{ retract_service }}"
                 target:
@@ -461,9 +481,8 @@ action:
           # Wenn Markise geschlossen ist, tue nichts
           - alias: Markise geschlossen -> tue nichts
             if:
-              - condition: state
-                entity_id: !input marquise_status_sensor
-                state: "off"
+              - condition: template
+                value_template: "{{ not is_open }}"
             then: []
           # Wenn Markisenstatus unbekannt, schließe Markise sicherheitshalber
           - alias: Markisenstatus unbekannt -> schließe Markise
@@ -490,9 +509,8 @@ action:
           # Wenn Markise geöffnet ist, schließe Markise
           - alias: Markise geöffnet -> schließe Markise
             if:
-              - condition: state
-                entity_id: !input marquise_status_sensor
-                state: "on"
+              - condition: template
+                value_template: "{{ is_open }}"
             then:
               - service: "{{ retract_service }}"
                 target:
@@ -517,9 +535,8 @@ action:
           # Wenn Markise geschlossen ist, tue nichts
           - alias: Markise geschlossen -> tue nichts
             if:
-              - condition: state
-                entity_id: !input marquise_status_sensor
-                state: "off"
+              - condition: template
+                value_template: "{{ not is_open }}"
             then: []
           # Wenn Markisenstatus unbekannt, schließe Markise sicherheitshalber
           - alias: Markisenstatus unbekannt -> schließe Markise
@@ -546,9 +563,8 @@ action:
           # Wenn Markise geöffnet ist, schließe Markise
           - alias: Markise geöffnet -> schließe Markise
             if:
-              - condition: state
-                entity_id: !input marquise_status_sensor
-                state: "on"
+              - condition: template
+                value_template: "{{ is_open }}"
             then:
               - service: "{{ retract_service }}"
                 target:
@@ -574,9 +590,8 @@ action:
               - trigger_sun_retract
         sequence:
           - if:
-              - condition: state
-                entity_id: !input marquise_status_sensor
-                state: "on"
+              - condition: template
+                value_template: "{{ is_open }}"
             then:
               - service: "{{ retract_service }}"
                 target:
@@ -612,9 +627,8 @@ action:
                   title: "Dunkelheit / Abend - Markisenstatus unbekannt"
                   message: "Versuche, Markise wegen geringer Helligkeit bzw. Sonnenuntergang automatisch einzufahren."
           - if:
-              - condition: state
-                entity_id: !input marquise_status_sensor
-                state: "off"
+              - condition: template
+                value_template: "{{ not is_open }}"
             then:
               - service: input_text.set_value
                 target:
@@ -644,9 +658,8 @@ action:
                     value_template: "{{ retract_count <= (retract_max | int(0)) }}"
             then:
               - if:
-                  - condition: state
-                    entity_id: !input marquise_status_sensor
-                    state: "off"
+                  - condition: template
+                    value_template: "{{ not is_open }}"
                 then:
                   - service: "{{ extend_service }}"
                     target:
@@ -766,9 +779,8 @@ action:
               - trigger_sensors_unknown
         sequence:
           - if:
-              - condition: state
-                entity_id: !input marquise_status_sensor
-                state: "on"
+              - condition: template
+                value_template: "{{ is_open }}"
             then:
               - service: "{{ retract_service }}"
                 target:
@@ -784,10 +796,8 @@ action:
                   title: "Markisenwächter - Sensor-Fehler"
                   message: "Markise wurde eingefahren, da kritische Sensoren nicht erreichbar sind."
           - if:
-              - condition: state
-                entity_id: !input marquise_status_sensor
-                state:
-                  - "off"
+              - condition: template
+                value_template: "{{ not is_open and states(marquise_status_var) not in ['unknown', 'unavailable'] }}"
             then:
               - alias: Benachrichtigung Sensor-Fehler
                 service: notify.notify
