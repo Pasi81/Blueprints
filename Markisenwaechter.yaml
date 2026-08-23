@@ -1,15 +1,17 @@
-
+# v1.12 (2026-08-23)
+#  - Change: Regensensor ist jetzt ein binärer Sensor (on/off) statt eines numerischen Statistik-Sensors mit Schwellenwert
+#  - Removed: Eingabe "Regenschwelle (mm)" entfällt, da nicht mehr benötigt
 # v1.11 (2026-08-16)
 #  - Fix: Automatisches Ausfahren bei nachlassendem Wind prüft nun bei aktiver Nachtsteuerung zwingend, ob Helligkeit/Tageslicht gegeben ist
 
 
 blueprint:
-  name: Markisenwächter v1.10
+  name: Markisenwächter v1.12
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
     * **Windüberwachung:** Fährt die Markise automatisch ein, wenn eine konfigurierbare Windgeschwindigkeit überschritten wird.
-    * **Regenüberwachung:** Fährt die Markise automatisch ein, wenn eine konfigurierbare Regenmenge innerhalb eines Zeitraums erkannt wird.
+    * **Regenüberwachung:** Fährt die Markise automatisch ein, wenn ein binärer Regensensor Regen meldet.
     * **Wind-Timeout:** Fährt die Markise sicherheitshalber ein, wenn der Windsensor für eine bestimmte Zeit nicht erreichbar ist.
     * **Sensor-Überwachung:** Sendet eine Benachrichtigung, wenn wichtige Sensoren wie Wind, Markisenstatus oder die Steuerungs-Switches nicht erreichbar sind.
     * **Automatisches Ausfahren:** Fährt die Markise wieder aus, wenn der Wind unter den Grenzwert fällt und kein Regen erkannt wird (sowie bei aktiver Nachtsteuerung ausreichend Helligkeit/Tageslicht herrscht).
@@ -19,10 +21,9 @@ blueprint:
     * **Tag-/Nachtautomatik:** Fährt die Markise bei Sonnenauf-/untergang (oder Über-/Unterschreiten eines eingestellten Helligkeitswertes) automatisch aus/ein.
     ### Notwendige Konfiguration:
     Dieser Blueprint erfordert die Konfiguration der folgenden Helfer (helpers) in Home Assistant:
-    1.  Ein `input_boolean` für den Status „Markise automatisch eingefahren“.
-    2.  Ein `input_boolean` für den Status „Markise automatisch ausgefahren“.
+    1.  Ein `input_boolean` für den Status „Markise automatisch eingefahren".
+    2.  Ein `input_boolean` für den Status „Markise automatisch ausgefahren".
     3.  Ein `counter` um die Anzahl der automatischen Einfahrvorgänge zu zählen.
-    4.  Ein `sensor` (z.B. ein Statistik-Sensor) für die akkumulierte Regenmenge über einen bestimmten Zeitraum.
     
   domain: automation
   
@@ -109,30 +110,16 @@ blueprint:
           mode: box
     rain_sensor:
       name: Regensensor-Entität
-      description: |-
-        Der **Numerische Sensor**, der die Regenmenge misst.
-        (z.B. `sensor.rain_last_5_minutes`)
-        
-        Erfordert einen Statistik-Sensor; der Niederschlag sollte in einem möglichst kurzen
-        Zeitraum summiert werden, um schnell auf Regen reagieren zu können. Der Zeitraum darf
-        jedoch auch nicht **zu** kurz sein (viele Regensensoren lösen nur in 1mm-Schritten auf).
-        
-        **Anlegen des Helfers:**
-        `Einstellungen → Geräte & Dienste → Helfer → Helfer erstellen → Statistik`
-        * **Entität:** dein Regensensor (=Quellsensor für die Berechnung)
-        * **Statistikmerkmal:** Summe der Differenzen
-        * **Stichprobengröße:** [Quellsensor-Updates / Minute] x [Maximalalter] + [kleiner Puffer]
-        * **Maximalalter:** z.B. 5 Minuten
-        * **Letzten Messwert behalten:** nein
-        * **Genauigkeit:** 1
+      description: |
+        Der **Binäre Sensor**, der erkennt, ob aktuell Regen vorliegt.
+        (`on` = Regen erkannt, `off` = kein Regen)
+        (z.B. `binary_sensor.regen_erkannt`)
       selector:
         entity:
-          domain: sensor
+          domain: binary_sensor
           multiple: false
           filter:
-            - device_class:
-                - volume
-                - precipitation
+            - device_class: moisture
     marquise_status_sensor:
       name: Markisenstatus-Sensor
       description: |
@@ -181,19 +168,6 @@ blueprint:
           min: 1
           max: 120
           unit_of_measurement: min
-          mode: box
-    rain_threshold:
-      name: Regenschwelle (mm)
-      description: |
-        Der numerische Wert in mm/m² (aus der **Regensensor-Entität**), ab dem die Markise eingefahren wird.
-        (Standard: 0.7 mm/m²)
-      default: 0.7
-      selector:
-        number:
-          step: 0.1
-          min: 0
-          max: 10
-          unit_of_measurement: mm/m²
           mode: box
     wind_sensor_timeout_minutes:
       name: Windsensor-Timeout (Minuten)
@@ -270,11 +244,11 @@ trigger:
     id: trigger_windsensor_max_threshold
     entity_id: !input wind_sensor
     above: !input wind_max_threshold
-  # Auslöser: Regenmenge über Schwellenwert
-  - platform: numeric_state
-    id: trigger_rain_statistic_sensor
+  # Auslöser: Regen wird vom binären Regensensor erkannt
+  - platform: state
+    id: trigger_rain_detected
     entity_id: !input rain_sensor
-    above: !input rain_threshold
+    to: "on"
   # Auslöser: Markise wird manuell ausgefahren
   - platform: state
     id: trigger_marquise_opened
@@ -373,7 +347,7 @@ condition: []
 action:
   - variables:
       wind_speed: !input wind_sensor
-      rain_amount: !input rain_sensor
+      rain_sensor_var: !input rain_sensor
       retract_count: !input retract_counter_helper
       retract_entity: !input marquise_retract_switch
       extend_entity: !input marquise_extend_switch
@@ -531,7 +505,7 @@ action:
       - conditions:
           - condition: trigger
             id:
-              - trigger_rain_statistic_sensor
+              - trigger_rain_detected
         sequence:
           # Wenn Markise geschlossen ist, tue nichts
           - alias: Markise geschlossen -> tue nichts
@@ -562,7 +536,7 @@ action:
                 service: notify.notify
                 data:
                   title: "Regen erkannt - Markisenstatus unbekannt"
-                  message: "Markise wird wegen Regen ({{ states(rain_amount) }} mm) eingefahren. Status unbekannt!"
+                  message: "Markise wird wegen Regen eingefahren. Status unbekannt!"
           # Wenn Markise geöffnet ist, schließe Markise
           - alias: Markise geöffnet -> schließe Markise
             if:
@@ -583,7 +557,7 @@ action:
                 service: notify.notify
                 data:
                   title: "Regen erkannt"
-                  message: "Markise wird wegen Regen ({{ states(rain_amount) }} mm) eingefahren."
+                  message: "Markise wird wegen Regen eingefahren."
         alias: Regen
       # Aktion: Tag-/Nachtsteuerung -> Einfahren bei Dunkelheit / Abend
       - conditions:
@@ -661,9 +635,9 @@ action:
                   - condition: numeric_state
                     entity_id: !input wind_sensor
                     below: !input wind_max_threshold
-                  - condition: numeric_state
+                  - condition: state
                     entity_id: !input rain_sensor
-                    below: !input rain_threshold
+                    state: "off"
                   - condition: template
                     value_template: "{{ states(retract_count) | int(0) <= (retract_max | int(0)) }}"
             then:
@@ -856,9 +830,9 @@ action:
                   - condition: state
                     entity_id: !input automatic_retracted_helper
                     state: "on"
-                  - condition: numeric_state
+                  - condition: state
                     entity_id: !input rain_sensor
-                    below: !input rain_threshold
+                    state: "off"
                   - condition: template
                     value_template: "{{ is_daytime | bool }}"
             then:
@@ -875,7 +849,7 @@ action:
                 service: notify.notify
                 data:
                   title: "Wind lässt nach"
-                  message: "Windstärke ({{ states(wind_speed) }} km/h) und Regen ({{ states(rain_amount) }} mm) sind unter den Schwellenwert gefallen. Markise wird wieder ausgefahren."
+                  message: "Windstärke ({{ states(wind_speed) }} km/h) ist unter den Schwellenwert gefallen und es regnet nicht. Markise wird wieder ausgefahren."
         alias: Wind lässt nach
     # Standardaktion, wenn kein Trigger zutrifft
     default:
