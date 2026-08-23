@@ -1,3 +1,7 @@
+# v1.15 (2026-08-23)
+#  - Change: Die Markise wird jetzt direkt über eine Cover-Entität in Prozent gesteuert.
+#    Einfahren setzt die Position immer auf 0 %, die Ausfahrposition ist konfigurierbar.
+#  - Added: Neue Eingänge für die Markisen-Cover-Entität und die gewünschte Ausfahrposition.
 # v1.14 (2026-08-23)
 #  - Change: Markisenstatus-Sensor ist jetzt ein numerischer Prozent-Sensor (0-100%) statt eines
 #    Binärsensors. Neuer Schwellenwert-Input bestimmt, ab wann die Markise als "ausgefahren" gilt
@@ -14,7 +18,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.14
+  name: Markisenwächter v1.15
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -62,6 +66,27 @@ blueprint:
             - switch
             - button
             - cover
+    marquise_cover:
+      name: Markise Cover-Entität
+      description: |
+        Die **Cover-Entität**, über die die Markise direkt auf eine Position gefahren wird.
+        Einfahren setzt die Position immer auf 0 %. Ausfahren setzt den unten konfigurierten Prozentwert.
+        (z.B. `cover.markise`)
+      selector:
+        entity:
+          domain: cover
+    marquise_extend_position:
+      name: Ausfahrposition der Markise (%)
+      description: |
+        Die Position, auf die die Markise beim automatischen Ausfahren gefahren wird.
+        Einfahren erfolgt immer auf 0 %.
+      default: 100
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+          mode: box
     wind_sensor:
       name: Windsensor-Entität
       description: |
@@ -294,6 +319,7 @@ trigger:
       - !input marquise_status_sensor
       - !input marquise_retract_switch
       - !input marquise_extend_switch
+      - !input marquise_cover
     to:
       - unavailable
       - unknown
@@ -363,8 +389,8 @@ action:
       wind_speed: !input wind_sensor
       rain_sensor_var: !input rain_sensor
       state_helper: !input state_helper
-      retract_entity: !input marquise_retract_switch
-      extend_entity: !input marquise_extend_switch
+      marquise_cover_entity: !input marquise_cover
+      extend_position: !input marquise_extend_position
       retract_max: !input automatic_retract_count_threshold
       light_sensor_var: !input light_sensor
       light_thresh_var: !input light_threshold
@@ -391,14 +417,6 @@ action:
         {% else %}
           false
         {% endif %}
-      retract_service: >
-        {% if retract_entity.startswith('button.') %} button.press
-        {% elif retract_entity.startswith('cover.') %} cover.close_cover
-        {% else %} homeassistant.turn_on {% endif %}
-      extend_service: >
-        {% if extend_entity.startswith('button.') %} button.press
-        {% elif extend_entity.startswith('cover.') %} cover.open_cover
-        {% else %} homeassistant.turn_on {% endif %}
       is_daytime: >
         {% if not enable_night %}
           true
@@ -436,9 +454,11 @@ action:
               - condition: template
                 value_template: "{{ is_open }}"
             then:
-              - service: "{{ retract_service }}"
+              - service: cover.set_cover_position
                 target:
-                  entity_id: "{{ retract_entity }}"
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: 0
               - service: input_text.set_value
                 target:
                   entity_id: !input state_helper
@@ -458,9 +478,11 @@ action:
                   - unknown
                   - unavailable
             then:
-              - service: "{{ retract_service }}"
+              - service: cover.set_cover_position
                 target:
-                  entity_id: "{{ retract_entity }}"
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: 0
               - service: input_text.set_value
                 target:
                   entity_id: !input state_helper
@@ -493,9 +515,11 @@ action:
                   - unavailable
                   - unknown
             then:
-              - service: "{{ retract_service }}"
+              - service: cover.set_cover_position
                 target:
-                  entity_id: "{{ retract_entity }}"
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: 0
               - service: input_text.set_value
                 target:
                   entity_id: !input state_helper
@@ -512,9 +536,11 @@ action:
               - condition: template
                 value_template: "{{ is_open }}"
             then:
-              - service: "{{ retract_service }}"
+              - service: cover.set_cover_position
                 target:
-                  entity_id: "{{ retract_entity }}"
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: 0
               - service: input_text.set_value
                 target:
                   entity_id: !input state_helper
@@ -547,9 +573,11 @@ action:
                   - unavailable
                   - unknown
             then:
-              - service: "{{ retract_service }}"
+              - service: cover.set_cover_position
                 target:
-                  entity_id: "{{ retract_entity }}"
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: 0
               - service: input_text.set_value
                 target:
                   entity_id: !input state_helper
@@ -566,9 +594,11 @@ action:
               - condition: template
                 value_template: "{{ is_open }}"
             then:
-              - service: "{{ retract_service }}"
+              - service: cover.set_cover_position
                 target:
-                  entity_id: "{{ retract_entity }}"
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: 0
               - service: input_text.set_value
                 target:
                   entity_id: !input state_helper
@@ -593,9 +623,11 @@ action:
               - condition: template
                 value_template: "{{ is_open }}"
             then:
-              - service: "{{ retract_service }}"
+              - service: cover.set_cover_position
                 target:
-                  entity_id: "{{ retract_entity }}"
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: 0
               - service: input_text.set_value
                 target:
                   entity_id: !input state_helper
@@ -613,9 +645,11 @@ action:
                   - unknown
                   - unavailable
             then:
-              - service: "{{ retract_service }}"
+              - service: cover.set_cover_position
                 target:
-                  entity_id: "{{ retract_entity }}"
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: 0
               - service: input_text.set_value
                 target:
                   entity_id: !input state_helper
@@ -661,9 +695,11 @@ action:
                   - condition: template
                     value_template: "{{ not is_open }}"
                 then:
-                  - service: "{{ extend_service }}"
+                  - service: cover.set_cover_position
                     target:
-                      entity_id: "{{ extend_entity }}"
+                      entity_id: "{{ marquise_cover_entity }}"
+                    data:
+                      position: "{{ extend_position | int(100) }}"
                   - service: input_text.set_value
                     target:
                       entity_id: !input state_helper
@@ -782,9 +818,11 @@ action:
               - condition: template
                 value_template: "{{ is_open }}"
             then:
-              - service: "{{ retract_service }}"
+              - service: cover.set_cover_position
                 target:
-                  entity_id: "{{ retract_entity }}"
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: 0
               - service: input_text.set_value
                 target:
                   entity_id: !input state_helper
@@ -811,9 +849,11 @@ action:
                   - "unavailable"
                   - "unknown"
             then:
-              - service: "{{ retract_service }}"
+              - service: cover.set_cover_position
                 target:
-                  entity_id: "{{ retract_entity }}"
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: 0
               - alias: Benachrichtigung Sensor-Fehler (Status unbekannt)
                 service: notify.notify
                 data:
@@ -842,9 +882,11 @@ action:
                   entity_id: !input state_helper
                 data:
                   value: "{{ {'retracted': false, 'extended': true, 'retract_count': retract_count} | tojson }}"
-              - service: "{{ extend_service }}"
+              - service: cover.set_cover_position
                 target:
-                  entity_id: "{{ extend_entity }}"
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: "{{ extend_position | int(100) }}"
               - alias: Benachrichtigung Wind lässt nach
                 service: notify.notify
                 data:
