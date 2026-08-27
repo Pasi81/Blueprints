@@ -1,3 +1,5 @@
+# v1.27 (2026-08-27)
+#  - Added: Automatisches Ausfahren nur bei ausreichender erwarteter Tageshöchsttemperatur.
 # v1.26 (2026-08-27)
 #  - Added: Manuelles Fahren wird bei Temperaturen unter 0 °C verhindert.
 # v1.25 (2026-08-27)
@@ -43,7 +45,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.26
+  name: Markisenwächter v1.27
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -53,6 +55,7 @@ blueprint:
     * **Sensor-Überwachung:** Sendet eine Benachrichtigung, wenn wichtige Sensoren wie Wind, Markisenstatus oder die Steuerungs-Switches nicht erreichbar sind.
     * **Automatisches Ausfahren:** Fährt die Markise wieder aus, wenn der Wind unter den Grenzwert fällt und kein Regen erkannt wird (sowie bei aktiver Nachtsteuerung ausreichend Helligkeit/Tageslicht herrscht).
     * **Temperaturüberwachung:** Verhindert das automatische Ausfahren, wenn die aktuelle Temperatur unter dem konfigurierten Grenzwert liegt.
+    * **Tageshöchsttemperatur:** Verhindert das automatische Ausfahren, wenn die erwartete Tageshöchsttemperatur unter dem konfigurierten Grenzwert liegt.
     * **Zählerschutz:** Zählt die automatischen Einfahrvorgänge. Bei Überschreiten eines Grenzwertes wird eine Benachrichtigung gesendet und ein weiteres Ausfahren unterbunden, um ein häufiges, unnötiges Ein- und Ausfahren zu verhindern.
     * **Manuelle Steuerung:** Erkennt manuelle Eingriffe (Aus- und Einfahren) und setzt interne Zähler zurück oder passt den Status an.
     * **Täglicher Reset:** Setzt den Einfahr-Zähler und den internen Status täglich zurück.
@@ -182,6 +185,29 @@ blueprint:
         Manuelle Ausfahrbefehle sowie automatisches Einfahren bleiben davon unberührt.
         (Standard: 8 °C)
       default: 8
+      selector:
+        number:
+          min: -50
+          max: 60
+          unit_of_measurement: °C
+          mode: box
+    expected_daily_high_sensor:
+      name: Erwartete Tageshöchsttemperatur-Entität
+      description: |
+        Der **numerische Sensor**, der die erwartete Tageshöchsttemperatur in °C liefert.
+        (z.B. ein Forecast-Sensor)
+      selector:
+        entity:
+          domain: sensor
+          multiple: false
+          filter:
+            - device_class: temperature
+    expected_daily_high_threshold:
+      name: Mindestwert erwartete Tageshöchsttemperatur (°C)
+      description: |
+        Die erwartete Tageshöchsttemperatur muss über diesem Wert liegen, damit die Markise automatisch ausgefahren wird.
+        (Standard: 20 °C)
+      default: 20
       selector:
         number:
           min: -50
@@ -429,6 +455,11 @@ trigger:
     id: trigger_temperature_min_threshold
     entity_id: !input temperature_sensor
     above: !input temperature_min_threshold
+  # Auslöser: Erwartete Tageshöchsttemperatur steigt über den Mindestwert
+  - platform: numeric_state
+    id: trigger_expected_daily_high_threshold
+    entity_id: !input expected_daily_high_sensor
+    above: !input expected_daily_high_threshold
   # Auslöser: Windsensor ist nicht verfügbar oder unbekannt für eine bestimmte Zeit
   - platform: state
     id: trigger_windsensor_unknown
@@ -809,6 +840,7 @@ action:
               - trigger_light_extend
               - trigger_sun_extend
               - trigger_temperature_min_threshold
+              - trigger_expected_daily_high_threshold
         sequence:
           - if:
               - condition: and
@@ -822,6 +854,9 @@ action:
                   - condition: numeric_state
                     entity_id: !input temperature_sensor
                     above: !input temperature_min_threshold
+                  - condition: numeric_state
+                    entity_id: !input expected_daily_high_sensor
+                    above: !input expected_daily_high_threshold
                   - condition: template
                     value_template: "{{ is_daytime | bool }}"
                   - condition: template
@@ -1074,6 +1109,7 @@ action:
           - condition: trigger
             id:
               - trigger_windsensor_min_threshold
+              - trigger_expected_daily_high_threshold
         sequence:
           - if:
               - condition: and
@@ -1084,8 +1120,14 @@ action:
                     entity_id: !input rain_sensor
                     state: "off"
                   - condition: numeric_state
+                    entity_id: !input wind_sensor
+                    below: !input wind_max_threshold
+                  - condition: numeric_state
                     entity_id: !input temperature_sensor
                     above: !input temperature_min_threshold
+                  - condition: numeric_state
+                    entity_id: !input expected_daily_high_sensor
+                    above: !input expected_daily_high_threshold
                   - condition: template
                     value_template: "{{ is_daytime | bool }}"
             then:
