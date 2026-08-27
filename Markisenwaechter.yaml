@@ -1,3 +1,7 @@
+# v1.20 (2026-08-27)
+#  - Added: Je ein optionaler zweiter Einfahr- und Ausfahr-Taster kann konfiguriert werden.
+# v1.19 (2026-08-27)
+#  - Fix: Event-Entitäten können nun als Einfahr- oder Ausfahr-Switch ausgewählt werden.
 # v1.18 (2026-08-27)
 #  - Fix: Automatisches Einfahren bei geringer Helligkeit bzw. Sonnenuntergang erhöht nun den retract_count.
 # v1.17 (2026-08-27)
@@ -27,7 +31,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.18
+  name: Markisenwächter v1.20
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -56,18 +60,32 @@ blueprint:
     marquise_retract_switch:
       name: Markise Einfahr-Switch
       description: |
-        **Switch/Button/Cover-Entity** womit die Markise eingefahren wird.
-        (z.B. `switch.markise_einfahren`)
+        **Switch/Button/Cover/Event-Entity**, womit die Markise eingefahren wird.
+        (z.B. `switch.markise_einfahren` oder `event.mobil_fernbedienung_1`)
       selector:
         entity:
           domain:
             - switch
             - button
             - cover
+            - event
+    marquise_retract_switch_2:
+      name: Optionaler zweiter Markise Einfahr-Switch
+      description: |
+        Optionaler zweiter **Switch/Button/Cover/Event-Entity**, womit die Markise eingefahren wird.
+        Leer lassen, wenn kein zweiter Eingang verwendet wird.
+      default: []
+      selector:
+        entity:
+          domain:
+            - switch
+            - button
+            - cover
+            - event
     marquise_extend_switch:
       name: Markise Ausfahr-Switch
       description: |
-        **Switch/Button/Cover-Entity** womit die Markise ausgefahren wird.
+        **Switch/Button/Cover/Event-Entity**, womit die Markise ausgefahren wird.
         (z.B. `switch.markise_ausfahren`)
       selector:
         entity:
@@ -75,6 +93,20 @@ blueprint:
             - switch
             - button
             - cover
+            - event
+    marquise_extend_switch_2:
+      name: Optionaler zweiter Markise Ausfahr-Switch
+      description: |
+        Optionaler zweiter **Switch/Button/Cover/Event-Entity**, womit die Markise ausgefahren wird.
+        Leer lassen, wenn kein zweiter Eingang verwendet wird.
+      default: []
+      selector:
+        entity:
+          domain:
+            - switch
+            - button
+            - cover
+            - event
     marquise_cover:
       name: Markise Cover-Entität
       description: |
@@ -356,7 +388,9 @@ trigger:
       - !input wind_sensor
       - !input marquise_status_sensor
       - !input marquise_retract_switch
+      - !input marquise_retract_switch_2
       - !input marquise_extend_switch
+      - !input marquise_extend_switch_2
       - !input marquise_cover
     to:
       - unavailable
