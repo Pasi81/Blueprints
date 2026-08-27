@@ -1,3 +1,5 @@
+# v1.22 (2026-08-27)
+#  - Fix: Manuelle Taster- und Event-Trigger steuern nun die Markise über die Cover-Entität.
 # v1.21 (2026-08-27)
 #  - Fix: Taster- und Event-Entitäten lösen nun die manuellen Einfahr- und Ausfahr-Aktionen aus.
 # v1.20 (2026-08-27)
@@ -33,7 +35,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.21
+  name: Markisenwächter v1.22
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -822,6 +824,24 @@ action:
                 value_template: "{{ not is_extended }}"
         sequence:
           - if:
+              - condition: template
+                value_template: "{{ trigger.id in ['trigger_marquise_extend_switch', 'trigger_marquise_extend_switch_2'] }}"
+            then:
+              - service: cover.set_cover_position
+                target:
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: "{{ extend_position | int(100) }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ sensors_channel_entity not in [none, '', [], 'none'] }}"
+                then:
+                  - service: cover.set_cover_position
+                    target:
+                      entity_id: "{{ sensors_channel_entity }}"
+                    data:
+                      position: 100
+          - if:
               - condition: numeric_state
                 entity_id: !input wind_sensor
                 above: !input wind_max_threshold
@@ -871,6 +891,15 @@ action:
               - condition: template
                 value_template: "{{ not is_retracted }}"
         sequence:
+          - if:
+              - condition: template
+                value_template: "{{ trigger.id in ['trigger_marquise_retract_switch', 'trigger_marquise_retract_switch_2'] }}"
+            then:
+              - service: cover.set_cover_position
+                target:
+                  entity_id: "{{ marquise_cover_entity }}"
+                data:
+                  position: 0
           - service: input_text.set_value
             target:
               entity_id: !input state_helper
