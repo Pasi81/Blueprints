@@ -1,3 +1,5 @@
+# v1.18 (2026-08-27)
+#  - Fix: Automatisches Einfahren bei geringer Helligkeit bzw. Sonnenuntergang erhöht nun den retract_count.
 # v1.17 (2026-08-27)
 #  - Change: Der gemeinsame Offset für Sonnenauf-/untergang und die zeitliche Helligkeitsentprellung
 #    wurde in getrennte Werte für Einfahren und Ausfahren aufgeteilt.
@@ -25,7 +27,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.17
+  name: Markisenwächter v1.18
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -669,7 +671,7 @@ action:
                 target:
                   entity_id: !input state_helper
                 data:
-                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count} | tojson }}"
+                  value: "{{ {'retracted': true, 'extended': false, 'retract_count': retract_count + 1} | tojson }}"
               - alias: Benachrichtigung Dunkelheit
                 service: notify.notify
                 data:
