@@ -1,3 +1,5 @@
+# v1.24 (2026-08-27)
+#  - Added: Ein erneuter Tasterdruck während der Fahrt hält die Markise an.
 # v1.23 (2026-08-27)
 #  - Fix: Einfahr- und Ausfahr-Taster steuern die Markise unabhängig vom gespeicherten Status.
 # v1.22 (2026-08-27)
@@ -37,7 +39,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.23
+  name: Markisenwächter v1.24
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -829,11 +831,19 @@ action:
               - condition: template
                 value_template: "{{ trigger.id in ['trigger_marquise_extend_switch', 'trigger_marquise_extend_switch_2'] }}"
             then:
-              - service: cover.set_cover_position
-                target:
-                  entity_id: "{{ marquise_cover_entity }}"
-                data:
-                  position: "{{ extend_position | int(100) }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ states(marquise_cover_entity) in ['opening', 'closing'] }}"
+                then:
+                  - service: cover.stop_cover
+                    target:
+                      entity_id: "{{ marquise_cover_entity }}"
+                else:
+                  - service: cover.set_cover_position
+                    target:
+                      entity_id: "{{ marquise_cover_entity }}"
+                    data:
+                      position: "{{ extend_position | int(100) }}"
               - if:
                   - condition: template
                     value_template: "{{ sensors_channel_entity not in [none, '', [], 'none'] }}"
@@ -897,11 +907,19 @@ action:
               - condition: template
                 value_template: "{{ trigger.id in ['trigger_marquise_retract_switch', 'trigger_marquise_retract_switch_2'] }}"
             then:
-              - service: cover.set_cover_position
-                target:
-                  entity_id: "{{ marquise_cover_entity }}"
-                data:
-                  position: 0
+              - if:
+                  - condition: template
+                    value_template: "{{ states(marquise_cover_entity) in ['opening', 'closing'] }}"
+                then:
+                  - service: cover.stop_cover
+                    target:
+                      entity_id: "{{ marquise_cover_entity }}"
+                else:
+                  - service: cover.set_cover_position
+                    target:
+                      entity_id: "{{ marquise_cover_entity }}"
+                    data:
+                      position: 0
           - service: input_text.set_value
             target:
               entity_id: !input state_helper
