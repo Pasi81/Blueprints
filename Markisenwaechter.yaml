@@ -1,3 +1,6 @@
+# v1.17 (2026-08-27)
+#  - Change: Der gemeinsame Offset für Sonnenauf-/untergang und die zeitliche Helligkeitsentprellung
+#    wurde in getrennte Werte für Einfahren und Ausfahren aufgeteilt.
 # v1.16 (2026-08-23)
 #  - Added: Optionaler zweiter Cover-Kanal als Sensoren-Kanal des Aktors.
 #    Dieser wird beim Ausfahren immer auf 100 % gesetzt und beim Einfahren nicht angesteuert.
@@ -22,7 +25,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.16
+  name: Markisenwächter v1.17
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -143,16 +146,33 @@ blueprint:
           max: 100000
           unit_of_measurement: lx
           mode: box
-    time_offset:
-      name: Offset für Sonnenauf- und untergang (Minuten) / Zeitliche Entprellung für Helligkeitsüber-/unterschreitung
+    time_offset_retract:
+      name: Offset Einfahren für Sonnenuntergang (Minuten) / Helligkeitsunterschreitung
       description: |
         **Mit Helligkeitssensor:**
-        Der eingestellte Helligkeitswert muss um X Minuten unter-/überschritten werden, damit die Markise ein-/ausfährt.
+        Der eingestellte Helligkeitswert muss um X Minuten unterschritten werden, damit die Markise einfährt.
         Das soll verhindern, dass kurzzeitig vorbeiziehende Wolken die Markise zum "Pendeln" bringen.
         
         **Ohne Helligkeitssensor:**
-        Die Markise wird X Minuten **vor** Sonnenuntergang eingefahren und X Minuten **nach** Sonnenaufgang ausgefahren
-        (basierend auf der **Sun-Integration** und deren Entitäten `sensor.sun_next_rising` / `sensor.sun_next_setting`).
+        Die Markise wird X Minuten **vor** Sonnenuntergang eingefahren
+        (basierend auf der **Sun-Integration** und deren Entität `sensor.sun_next_setting`).
+      default: 15
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: min
+          mode: box
+    time_offset_extend:
+      name: Offset Ausfahren für Sonnenaufgang (Minuten) / Helligkeitsüberschreitung
+      description: |
+        **Mit Helligkeitssensor:**
+        Der eingestellte Helligkeitswert muss um X Minuten überschritten werden, damit die Markise ausfährt.
+        Das soll verhindern, dass kurzzeitig vorbeiziehende Wolken die Markise zum "Pendeln" bringen.
+
+        **Ohne Helligkeitssensor:**
+        Die Markise wird X Minuten **nach** Sonnenaufgang ausgefahren
+        (basierend auf der **Sun-Integration** und deren Entität `sensor.sun_next_rising`).
       default: 15
       selector:
         number:
@@ -285,7 +305,8 @@ blueprint:
 
 trigger_variables:
   light_sensor_input: !input light_sensor
-  time_offset_input: !input time_offset
+  time_offset_retract_input: !input time_offset_retract
+  time_offset_extend_input: !input time_offset_extend
   state_helper_input: !input state_helper
   retract_threshold_input: !input automatic_retract_count_threshold
 
@@ -362,14 +383,14 @@ trigger:
     entity_id: !input light_sensor
     below: !input light_threshold
     for:
-      minutes: !input time_offset
+      minutes: !input time_offset_retract
   # Helligkeit über Schwellenwert
   - platform: numeric_state
     id: trigger_light_extend
     entity_id: !input light_sensor
     above: !input light_threshold
     for:
-      minutes: !input time_offset
+      minutes: !input time_offset_extend
   
   # --- OHNE HELLIGKEITSSENSOR (FALLBACK SUN-Entity) ---
   # Zeitpunkt: x Minuten vor Sonnenuntergang
@@ -378,7 +399,7 @@ trigger:
     value_template: >-
       {% set sensor = light_sensor_input %}
       {% set setting = states('sensor.sun_next_setting') %}
-      {% set offset = time_offset_input | int(0) %}
+      {% set offset = time_offset_retract_input | int(0) %}
       {% if (sensor is none or sensor == [] or sensor == '' or sensor == 'none') and setting not in ['unknown', 'unavailable', 'None'] %}
         {{ now() >= (setting | as_datetime | as_local) - timedelta(minutes=offset) }}
       {% else %}
@@ -390,7 +411,7 @@ trigger:
     value_template: >-
       {% set sensor = light_sensor_input %}
       {% set rising = states('sensor.sun_next_rising') %}
-      {% set offset = time_offset_input | int(0) %}
+      {% set offset = time_offset_extend_input | int(0) %}
       {% if (sensor is none or sensor == [] or sensor == '' or sensor == 'none') and rising not in ['unknown', 'unavailable', 'None'] %}
         {{ now() >= (rising | as_datetime | as_local) + timedelta(minutes=offset) }}
       {% else %}
