@@ -1,3 +1,5 @@
+# v1.26 (2026-08-27)
+#  - Added: Manuelles Fahren wird bei Temperaturen unter 0 °C verhindert.
 # v1.25 (2026-08-27)
 #  - Added: Automatisches Ausfahren erfolgt nur oberhalb der konfigurierten Temperaturgrenze.
 # v1.24 (2026-08-27)
@@ -41,7 +43,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.25
+  name: Markisenwächter v1.26
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -854,6 +856,19 @@ action:
                       title: "Helligkeit / Morgen"
                       message: "Markise wurde wegen ausreichender Helligkeit bzw. Sonnenaufgang automatisch ausgefahren."
         alias: Tag/Nach - Ausfahren
+      # Aktion: Manuelles Fahren bei Frost verhindern
+      - conditions:
+          - condition: trigger
+            id:
+              - trigger_marquise_retract_switch
+              - trigger_marquise_retract_switch_2
+              - trigger_marquise_extend_switch
+              - trigger_marquise_extend_switch_2
+          - condition: numeric_state
+            entity_id: !input temperature_sensor
+            below: 0
+        sequence: []
+        alias: Manuelles Fahren bei Frost gesperrt
       # Aktion: Manuelles Ausfahren
       - conditions:
           - condition: and
