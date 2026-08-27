@@ -1,3 +1,5 @@
+# v1.28 (2026-08-27)
+#  - Change: Die Prüfung der erwarteten Tageshöchsttemperatur ist optional.
 # v1.27 (2026-08-27)
 #  - Added: Automatisches Ausfahren nur bei ausreichender erwarteter Tageshöchsttemperatur.
 # v1.26 (2026-08-27)
@@ -45,7 +47,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.27
+  name: Markisenwächter v1.28
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -195,7 +197,9 @@ blueprint:
       name: Erwartete Tageshöchsttemperatur-Entität
       description: |
         Der **numerische Sensor**, der die erwartete Tageshöchsttemperatur in °C liefert.
+        Optional. Leer lassen, wenn keine Tageshöchsttemperatur berücksichtigt werden soll.
         (z.B. ein Forecast-Sensor)
+      default: []
       selector:
         entity:
           domain: sensor
@@ -555,6 +559,8 @@ action:
       retract_max: !input automatic_retract_count_threshold
       light_sensor_var: !input light_sensor
       light_thresh_var: !input light_threshold
+      expected_daily_high_sensor_var: !input expected_daily_high_sensor
+      expected_daily_high_threshold_var: !input expected_daily_high_threshold
       enable_night: !input enable_night_control
       marquise_status_var: !input marquise_status_sensor
       marquise_status_threshold_var: !input marquise_status_threshold
@@ -595,6 +601,14 @@ action:
               true
             {% endif %}
           {% endif %}
+        {% endif %}
+      expected_daily_high_allowed: >-
+        {% set sensor = expected_daily_high_sensor_var %}
+        {% if sensor in [none, [], '', 'none'] %}
+          true
+        {% else %}
+          {{ states(sensor) not in ['unknown', 'unavailable', 'none', ''] and
+             states(sensor) | float(-999) > (expected_daily_high_threshold_var | float(20)) }}
         {% endif %}
   - choose:
       # Aktion: Starkwind erkannt
@@ -854,9 +868,8 @@ action:
                   - condition: numeric_state
                     entity_id: !input temperature_sensor
                     above: !input temperature_min_threshold
-                  - condition: numeric_state
-                    entity_id: !input expected_daily_high_sensor
-                    above: !input expected_daily_high_threshold
+                  - condition: template
+                    value_template: "{{ expected_daily_high_allowed | bool }}"
                   - condition: template
                     value_template: "{{ is_daytime | bool }}"
                   - condition: template
@@ -1125,9 +1138,8 @@ action:
                   - condition: numeric_state
                     entity_id: !input temperature_sensor
                     above: !input temperature_min_threshold
-                  - condition: numeric_state
-                    entity_id: !input expected_daily_high_sensor
-                    above: !input expected_daily_high_threshold
+                  - condition: template
+                    value_template: "{{ expected_daily_high_allowed | bool }}"
                   - condition: template
                     value_template: "{{ is_daytime | bool }}"
             then:
