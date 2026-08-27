@@ -1,3 +1,5 @@
+# v1.21 (2026-08-27)
+#  - Fix: Taster- und Event-Entitäten lösen nun die manuellen Einfahr- und Ausfahr-Aktionen aus.
 # v1.20 (2026-08-27)
 #  - Added: Je ein optionaler zweiter Einfahr- und Ausfahr-Taster kann konfiguriert werden.
 # v1.19 (2026-08-27)
@@ -31,7 +33,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.20
+  name: Markisenwächter v1.21
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -365,6 +367,20 @@ trigger:
     id: trigger_marquise_closed
     entity_id: !input marquise_status_sensor
     below: !input marquise_status_threshold
+  # Auslöser: Manueller Einfahr-Taster oder Event-Entität
+  - platform: state
+    id: trigger_marquise_retract_switch
+    entity_id: !input marquise_retract_switch
+  - platform: state
+    id: trigger_marquise_retract_switch_2
+    entity_id: !input marquise_retract_switch_2
+  # Auslöser: Manueller Ausfahr-Taster oder Event-Entität
+  - platform: state
+    id: trigger_marquise_extend_switch
+    entity_id: !input marquise_extend_switch
+  - platform: state
+    id: trigger_marquise_extend_switch_2
+    entity_id: !input marquise_extend_switch_2
   # Auslöser: Windgeschwindigkeit unter minimalem Schwellenwert für eine bestimmte Zeit
   - platform: numeric_state
     id: trigger_windsensor_min_threshold
@@ -800,6 +816,8 @@ action:
               - condition: trigger
                 id:
                   - trigger_marquise_opened
+                  - trigger_marquise_extend_switch
+                  - trigger_marquise_extend_switch_2
               - condition: template
                 value_template: "{{ not is_extended }}"
         sequence:
@@ -835,6 +853,8 @@ action:
               - condition: trigger
                 id:
                   - trigger_marquise_opened
+                  - trigger_marquise_extend_switch
+                  - trigger_marquise_extend_switch_2
               - condition: template
                 value_template: "{{ is_extended }}"
         sequence: [] # Tue nichts, da die Aktion bereits durch einen anderen Block ausgelöst wurde
@@ -846,6 +866,8 @@ action:
               - condition: trigger
                 id:
                   - trigger_marquise_closed
+                  - trigger_marquise_retract_switch
+                  - trigger_marquise_retract_switch_2
               - condition: template
                 value_template: "{{ not is_retracted }}"
         sequence:
@@ -862,6 +884,8 @@ action:
               - condition: trigger
                 id:
                   - trigger_marquise_closed
+                  - trigger_marquise_retract_switch
+                  - trigger_marquise_retract_switch_2
               - condition: template
                 value_template: "{{ is_retracted }}"
         sequence: [] # Tue nichts, da die Aktion bereits durch einen anderen Block ausgelöst wurde
