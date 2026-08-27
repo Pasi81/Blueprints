@@ -1,3 +1,5 @@
+# v1.23 (2026-08-27)
+#  - Fix: Einfahr- und Ausfahr-Taster steuern die Markise unabhängig vom gespeicherten Status.
 # v1.22 (2026-08-27)
 #  - Fix: Manuelle Taster- und Event-Trigger steuern nun die Markise über die Cover-Entität.
 # v1.21 (2026-08-27)
@@ -35,7 +37,7 @@
 
 
 blueprint:
-  name: Markisenwächter v1.22
+  name: Markisenwächter v1.23
   description: |
     Dieser Blueprint bietet eine erweiterte Automatisierung für eine Markise basierend auf verschiedenen Sensordaten wie Wind und Regen.
     ### Funktionen:
@@ -821,7 +823,7 @@ action:
                   - trigger_marquise_extend_switch
                   - trigger_marquise_extend_switch_2
               - condition: template
-                value_template: "{{ not is_extended }}"
+                value_template: "{{ not is_extended or trigger.id in ['trigger_marquise_extend_switch', 'trigger_marquise_extend_switch_2'] }}"
         sequence:
           - if:
               - condition: template
@@ -876,7 +878,7 @@ action:
                   - trigger_marquise_extend_switch
                   - trigger_marquise_extend_switch_2
               - condition: template
-                value_template: "{{ is_extended }}"
+                value_template: "{{ is_extended and trigger.id not in ['trigger_marquise_extend_switch', 'trigger_marquise_extend_switch_2'] }}"
         sequence: [] # Tue nichts, da die Aktion bereits durch einen anderen Block ausgelöst wurde
         alias: Automatisch ausgefahren - tue nichts
       # Aktion: Manuelles Einfahren
@@ -889,7 +891,7 @@ action:
                   - trigger_marquise_retract_switch
                   - trigger_marquise_retract_switch_2
               - condition: template
-                value_template: "{{ not is_retracted }}"
+                value_template: "{{ not is_retracted or trigger.id in ['trigger_marquise_retract_switch', 'trigger_marquise_retract_switch_2'] }}"
         sequence:
           - if:
               - condition: template
@@ -916,7 +918,7 @@ action:
                   - trigger_marquise_retract_switch
                   - trigger_marquise_retract_switch_2
               - condition: template
-                value_template: "{{ is_retracted }}"
+                value_template: "{{ is_retracted and trigger.id not in ['trigger_marquise_retract_switch', 'trigger_marquise_retract_switch_2'] }}"
         sequence: [] # Tue nichts, da die Aktion bereits durch einen anderen Block ausgelöst wurde
         alias: Automatisch eingefahren - tue nichts
       # Aktion: Zählerschutz-Benachrichtigung
