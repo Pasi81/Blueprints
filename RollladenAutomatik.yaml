@@ -1,5 +1,10 @@
-# Versionierung: name enthält die aktuelle Version. Bei jeder Änderung Name + Beschreibung entsprechend anpassen.
-# Changelog (nur als Kommentar, da Home Assistant Blueprint-Keys hier nicht erlaubt sind):
+# Versionierung & Changelog-Workflow:
+# - Bei jeder Änderung die Version im Blueprint-Namen erhöhen (z. B. V0.2.2).
+# - Einen neuen Changelog-Eintrag oben ergänzen.
+# - Patch = kleiner Fix, Minor = neue Funktion, Major = breaking change.
+# - Danach: Datei committen und pushen.
+#
+# Changelog:
 # 0.2.1 - 2026-09-12: Fehler im JSON-Template behoben; sichere dict-zu-JSON-Schreibweise ohne SecurityError.
 # 0.2.0 - 2026-09-12: Zustand und Fahrten werden in einer gemeinsamen JSON-Text-Entität gespeichert; mehrere Blueprint-Aufrufe können dort gesammelt werden.
 # 0.1.1 - 2026-09-12: Eingaben für Azimut, Elevation, Mindesttemperaturen und Max. Fahrten können jetzt als fester Wert oder als verknüpfte Entität konfiguriert werden.
