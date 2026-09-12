@@ -323,9 +323,7 @@ action:
                   value: >-
                     {% set raw = states(json_entity) %}
                     {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
-                    {% set updated = current.copy() %}
-                    {% set _ = updated.update({storage_key: {'zustand': 2, 'fahrten': 0}}) %}
-                    {{ updated | to_json }}
+                    {{ dict(current, **{storage_key: {'zustand': 2, 'fahrten': 0}}) | to_json }}
       # ---------------------------------------------------------
       # Zustand 2 Nicht Beschatten → Nacht oder Beschattung 
       # ---------------------------------------------------------
@@ -357,9 +355,7 @@ action:
                       value: >-
                         {% set raw = states(json_entity) %}
                         {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
-                        {% set updated = current.copy() %}
-                        {% set _ = updated.update({storage_key: {'zustand': 1, 'fahrten': fahrten | int}}) %}
-                        {{ updated | to_json }}
+                        {{ dict(current, **{storage_key: {'zustand': 1, 'fahrten': fahrten | int}}) | to_json }}
                 alias: Sonne = 0 (Nacht)
 
               - conditions:
@@ -405,9 +401,7 @@ action:
                       value: >-
                         {% set raw = states(json_entity) %}
                         {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
-                        {% set updated = current.copy() %}
-                        {% set _ = updated.update({storage_key: {'zustand': 3, 'fahrten': (fahrten + 1) | int}}) %}
-                        {{ updated | to_json }}
+                        {{ dict(current, **{storage_key: {'zustand': 3, 'fahrten': (fahrten + 1) | int}}) | to_json }}
                 alias: Zustand 2 (Beschattung nicht aktiv)
 
       # ---------------------------------------------------------
@@ -463,9 +457,7 @@ action:
                       value: >-
                         {% set raw = states(json_entity) %}
                         {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
-                        {% set updated = current.copy() %}
-                        {% set _ = updated.update({storage_key: {'zustand': 2, 'fahrten': fahrten | int}}) %}
-                        {{ updated | to_json }}
+                        {{ dict(current, **{storage_key: {'zustand': 2, 'fahrten': fahrten | int}}) | to_json }}
 
               # → Nacht
               - conditions:
@@ -489,9 +481,7 @@ action:
                       value: >-
                         {% set raw = states(json_entity) %}
                         {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
-                        {% set updated = current.copy() %}
-                        {% set _ = updated.update({storage_key: {'zustand': 1, 'fahrten': fahrten | int}}) %}
-                        {{ updated | to_json }}
+                        {{ dict(current, **{storage_key: {'zustand': 1, 'fahrten': fahrten | int}}) | to_json }}
       # ---------------------------------------------------------
       # Zustand ?? → Korrigieren
       # ---------------------------------------------------------
@@ -503,6 +493,4 @@ action:
             value: >-
               {% set raw = states(json_entity) %}
               {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
-              {% set updated = current.copy() %}
-              {% set _ = updated.update({storage_key: {'zustand': 1, 'fahrten': 0}}) %}
-              {{ updated | to_json }}
+              {{ dict(current, **{storage_key: {'zustand': 1, 'fahrten': 0}}) | to_json }}
