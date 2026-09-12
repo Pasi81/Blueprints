@@ -1,12 +1,13 @@
 # Versionierung: name enthält die aktuelle Version. Bei jeder Änderung Name + Beschreibung entsprechend anpassen.
 # Changelog (nur als Kommentar, da Home Assistant Blueprint-Keys hier nicht erlaubt sind):
+# 0.2.1 - 2026-09-12: Fehler im JSON-Template behoben; sichere dict-zu-JSON-Schreibweise ohne SecurityError.
 # 0.2.0 - 2026-09-12: Zustand und Fahrten werden in einer gemeinsamen JSON-Text-Entität gespeichert; mehrere Blueprint-Aufrufe können dort gesammelt werden.
 # 0.1.1 - 2026-09-12: Eingaben für Azimut, Elevation, Mindesttemperaturen und Max. Fahrten können jetzt als fester Wert oder als verknüpfte Entität konfiguriert werden.
 # 0.1.0 - 2026-09-12: Initiale Version des Blueprints
 blueprint:
-  name: Rolladen Automatik V0.2.0
+  name: Rolladen Automatik V0.2.1
   description: >
-    Zustand & Fahrtenzähler werden in einer gemeinsamen JSON-Text-Entität gespeichert. Version 0.2.0.
+    Zustand & Fahrtenzähler werden in einer gemeinsamen JSON-Text-Entität gespeichert. Version 0.2.1.
   domain: automation
 
   input:
