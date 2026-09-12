@@ -1,11 +1,12 @@
 # Versionierung: name enthält die aktuelle Version. Bei jeder Änderung Name + Beschreibung entsprechend anpassen.
 # Changelog (nur als Kommentar, da Home Assistant Blueprint-Keys hier nicht erlaubt sind):
+# 0.2.0 - 2026-09-12: Zustand und Fahrten werden in einer gemeinsamen JSON-Text-Entität gespeichert; mehrere Blueprint-Aufrufe können dort gesammelt werden.
 # 0.1.1 - 2026-09-12: Eingaben für Azimut, Elevation, Mindesttemperaturen und Max. Fahrten können jetzt als fester Wert oder als verknüpfte Entität konfiguriert werden.
 # 0.1.0 - 2026-09-12: Initiale Version des Blueprints
 blueprint:
-  name: Rolladen Automatik V0.1.1
+  name: Rolladen Automatik V0.2.0
   description: >
-    Zustand & Fahrtenzähler werden in externen Input-Number-Entitäten gespeichert. Version 0.1.1.
+    Zustand & Fahrtenzähler werden in einer gemeinsamen JSON-Text-Entität gespeichert. Version 0.2.0.
   domain: automation
 
   input:
@@ -41,17 +42,12 @@ blueprint:
       selector:
         entity:
 
-    zustand_entity:
-      name: Zustand-Speicher
+    json_entity:
+      name: JSON-Speicher für Zustand/Fahrten
+      default: ""
       selector:
         entity:
-          domain: input_number
-
-    fahrten_entity:
-      name: Fahrtenzähler-Speicher
-      selector:
-        entity:
-          domain: input_number
+          domain: input_text
 
     azi_start:
       name: Azimut Start (Wert)
@@ -234,8 +230,15 @@ variables:
   sonnen_elevation_entity: !input sonnen_elevation
   temp_aussen_entity: !input temp_aussen
   temp_vorhersage_entity: !input temp_vorhersage
-  zustand_entity: !input zustand_entity
-  fahrten_entity: !input fahrten_entity
+  json_entity: !input json_entity
+  storage_key: "{{ rollladen | replace('.', '_') | replace('-', '_') | replace(' ', '_') }}"
+  storage_data: >
+    {% set raw = states(json_entity) %}
+    {% if raw in ['unknown', 'unavailable', 'none', ''] %}
+      {{ {} }}
+    {% else %}
+      {{ raw | from_json }}
+    {% endif %}
   azi_start: !input azi_start
   azi_start_entity: !input azi_start_entity
   azi_end: !input azi_end
@@ -276,8 +279,10 @@ variables:
   max_fahrten_value: >
     {% set src = max_fahrten_entity | default('') %}
     {{ states(src) | int(0) if src not in [none, ''] else (max_fahrten | int) }}
-  zustand: "{{ states(zustand_entity) | int }}"
-  fahrten: "{{ states(fahrten_entity) | int }}"
+  zustand: >
+    {{ storage_data.get(storage_key, {}).get('zustand', 1) | int }}
+  fahrten: >
+    {{ storage_data.get(storage_key, {}).get('fahrten', 0) | int }}
   sonne: "{{ states(sonnen_zustand_entity) | default(0) | int }}"
   azi: "{{ states(sonnen_azimut_entity) | float }}"
   elv: "{{ states(sonnen_elevation_entity) | float }}"
@@ -311,17 +316,16 @@ action:
                         position: !input pos_offen
                 alias: Rollladen nur öffnen wenn nachts fahren aktiv ist
                 
-              - service: input_number.set_value
+              - service: input_text.set_value
                 target:
-                  entity_id: !input fahrten_entity
+                  entity_id: !input json_entity
                 data:
-                  value: 0
-
-              - service: input_number.set_value
-                target:
-                  entity_id: !input zustand_entity
-                data:
-                  value: 2
+                  value: >-
+                    {% set raw = states(json_entity) %}
+                    {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
+                    {% set updated = current.copy() %}
+                    {% set _ = updated.update({storage_key: {'zustand': 2, 'fahrten': 0}}) %}
+                    {{ updated | to_json }}
       # ---------------------------------------------------------
       # Zustand 2 Nicht Beschatten → Nacht oder Beschattung 
       # ---------------------------------------------------------
@@ -346,11 +350,16 @@ action:
                           data:
                             position: !input pos_zu
 
-                  - service: input_number.set_value
+                  - service: input_text.set_value
                     target:
-                      entity_id: !input zustand_entity
+                      entity_id: !input json_entity
                     data:
-                      value: 1
+                      value: >-
+                        {% set raw = states(json_entity) %}
+                        {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
+                        {% set updated = current.copy() %}
+                        {% set _ = updated.update({storage_key: {'zustand': 1, 'fahrten': fahrten | int}}) %}
+                        {{ updated | to_json }}
                 alias: Sonne = 0 (Nacht)
 
               - conditions:
@@ -389,17 +398,16 @@ action:
                         data:
                           position: !input pos_beschattung
 
-                  - service: input_number.set_value
+                  - service: input_text.set_value
                     target:
-                      entity_id: !input fahrten_entity
+                      entity_id: !input json_entity
                     data:
-                      value: "{{ fahrten + 1 }}"
-
-                  - service: input_number.set_value
-                    target:
-                      entity_id: !input zustand_entity
-                    data:
-                      value: 3
+                      value: >-
+                        {% set raw = states(json_entity) %}
+                        {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
+                        {% set updated = current.copy() %}
+                        {% set _ = updated.update({storage_key: {'zustand': 3, 'fahrten': (fahrten + 1) | int}}) %}
+                        {{ updated | to_json }}
                 alias: Zustand 2 (Beschattung nicht aktiv)
 
       # ---------------------------------------------------------
@@ -448,11 +456,16 @@ action:
                       data:
                         position: !input pos_offen
 
-                  - service: input_number.set_value
+                  - service: input_text.set_value
                     target:
-                      entity_id: !input zustand_entity
+                      entity_id: !input json_entity
                     data:
-                      value: 2
+                      value: >-
+                        {% set raw = states(json_entity) %}
+                        {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
+                        {% set updated = current.copy() %}
+                        {% set _ = updated.update({storage_key: {'zustand': 2, 'fahrten': fahrten | int}}) %}
+                        {{ updated | to_json }}
 
               # → Nacht
               - conditions:
@@ -469,17 +482,27 @@ action:
                         data:
                           position: !input pos_zu
 
-                  - service: input_number.set_value
+                  - service: input_text.set_value
                     target:
-                      entity_id: !input zustand_entity
+                      entity_id: !input json_entity
                     data:
-                      value: 1
+                      value: >-
+                        {% set raw = states(json_entity) %}
+                        {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
+                        {% set updated = current.copy() %}
+                        {% set _ = updated.update({storage_key: {'zustand': 1, 'fahrten': fahrten | int}}) %}
+                        {{ updated | to_json }}
       # ---------------------------------------------------------
       # Zustand ?? → Korrigieren
       # ---------------------------------------------------------
     default:
-        - service: input_number.set_value
+        - service: input_text.set_value
           target:
-            entity_id: !input zustand_entity
+            entity_id: !input json_entity
           data:
-            value: 1
+            value: >-
+              {% set raw = states(json_entity) %}
+              {% set current = raw | from_json if raw not in ['unknown', 'unavailable', 'none', ''] else {} %}
+              {% set updated = current.copy() %}
+              {% set _ = updated.update({storage_key: {'zustand': 1, 'fahrten': 0}}) %}
+              {{ updated | to_json }}
