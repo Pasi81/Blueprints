@@ -1,8 +1,21 @@
 blueprint:
-  name: Rolladen Automatik
+  name: Rolladen Automatik V0.1.1
   description: >
     Zustand & Fahrtenzähler werden in externen Input-Number-Entitäten gespeichert
   domain: automation
+  version: 0.1.1
+  versioning:
+    - "Bei jeder Änderung die Version erhöhen und einen neuen Changelog-Eintrag ergänzen."
+    - "Regel: Patch = kleiner Fix, Minor = neue Funktion, Major = breaking change."
+  changelog:
+    - version: 0.1.1
+      date: '2026-09-12'
+      changes:
+        - Eingaben für Azimut, Elevation, Mindesttemperaturen und Max. Fahrten können jetzt als fester Wert oder als verknüpfte Entität konfiguriert werden.
+    - version: 0.1.0
+      date: '2026-09-12'
+      changes:
+        - Initiale Version des Blueprints
 
   input:
 
@@ -50,7 +63,7 @@ blueprint:
           domain: input_number
 
     azi_start:
-      name: Azimut Start
+      name: Azimut Start (Wert)
       default: 90
       selector:
         number:
@@ -58,8 +71,15 @@ blueprint:
           max: 360
           step: 1
 
+    azi_start_entity:
+      name: Azimut Start (Entität)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+
     azi_end:
-      name: Azimut Ende
+      name: Azimut Ende (Wert)
       default: 300
       selector:
         number:
@@ -67,8 +87,15 @@ blueprint:
           max: 360
           step: 1
 
+    azi_end_entity:
+      name: Azimut Ende (Entität)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+
     elv_start:
-      name: Elevation Start
+      name: Elevation Start (Wert)
       default: 0
       selector:
         number:
@@ -76,14 +103,28 @@ blueprint:
           max: 90
           step: 1
 
+    elv_start_entity:
+      name: Elevation Start (Entität)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+
     elv_end:
-      name: Elevation Ende
+      name: Elevation Ende (Wert)
       default: 90
       selector:
         number:
           min: -20
           max: 90
           step: 1
+
+    elv_end_entity:
+      name: Elevation Ende (Entität)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
 
     einbauwinkel:
       name: Einbauwinkel
@@ -122,16 +163,23 @@ blueprint:
           step: 1
 
     temp_aussen_min:
-      name: Mindesttemperatur Außen
+      name: Mindesttemperatur Außen (Wert)
       default: 18
       selector:
         number:
           min: -20
           max: 50
           step: 1
+
+    temp_aussen_min_entity:
+      name: Mindesttemperatur Außen (Entität)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
 
     temp_vorhersage_min:
-      name: Mindesttemperatur Vorhersage
+      name: Mindesttemperatur Vorhersage (Wert)
       default: 18
       selector:
         number:
@@ -139,14 +187,28 @@ blueprint:
           max: 50
           step: 1
 
+    temp_vorhersage_min_entity:
+      name: Mindesttemperatur Vorhersage (Entität)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+
     max_fahrten:
-      name: Max. Fahrten pro Tag
+      name: Max. Fahrten pro Tag (Wert)
       default: 10
       selector:
         number:
           min: 1
           max: 14
           step: 1
+
+    max_fahrten_entity:
+      name: Max. Fahrten pro Tag (Entität)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
 
     nachts_fahren:
       name: Nachts fahren
@@ -184,17 +246,45 @@ variables:
   zustand_entity: !input zustand_entity
   fahrten_entity: !input fahrten_entity
   azi_start: !input azi_start
+  azi_start_entity: !input azi_start_entity
   azi_end: !input azi_end
+  azi_end_entity: !input azi_end_entity
   elv_start: !input elv_start
+  elv_start_entity: !input elv_start_entity
   elv_end: !input elv_end
+  elv_end_entity: !input elv_end_entity
   einbauwinkel: !input einbauwinkel
   pos_beschattung: !input pos_beschattung
   pos_offen: !input pos_offen
   pos_zu: !input pos_zu
   temp_aussen_min: !input temp_aussen_min
+  temp_aussen_min_entity: !input temp_aussen_min_entity
   temp_vorhersage_min: !input temp_vorhersage_min
+  temp_vorhersage_min_entity: !input temp_vorhersage_min_entity
   max_fahrten: !input max_fahrten
+  max_fahrten_entity: !input max_fahrten_entity
   nachts_fahren: !input nachts_fahren
+  azi_start_value: >
+    {% set src = azi_start_entity | default('') %}
+    {{ states(src) | float(0) if src not in [none, ''] else (azi_start | float) }}
+  azi_end_value: >
+    {% set src = azi_end_entity | default('') %}
+    {{ states(src) | float(0) if src not in [none, ''] else (azi_end | float) }}
+  elv_start_value: >
+    {% set src = elv_start_entity | default('') %}
+    {{ states(src) | float(0) if src not in [none, ''] else (elv_start | float) }}
+  elv_end_value: >
+    {% set src = elv_end_entity | default('') %}
+    {{ states(src) | float(0) if src not in [none, ''] else (elv_end | float) }}
+  temp_aussen_min_value: >
+    {% set src = temp_aussen_min_entity | default('') %}
+    {{ states(src) | float(0) if src not in [none, ''] else (temp_aussen_min | float) }}
+  temp_vorhersage_min_value: >
+    {% set src = temp_vorhersage_min_entity | default('') %}
+    {{ states(src) | float(0) if src not in [none, ''] else (temp_vorhersage_min | float) }}
+  max_fahrten_value: >
+    {% set src = max_fahrten_entity | default('') %}
+    {{ states(src) | int(0) if src not in [none, ''] else (max_fahrten | int) }}
   zustand: "{{ states(zustand_entity) | int }}"
   fahrten: "{{ states(fahrten_entity) | int }}"
   sonne: "{{ states(sonnen_zustand_entity) | default(0) | int }}"
@@ -280,20 +370,20 @@ action:
                     value_template: |
                       {{
                         (
-                          azi >= (azi_start | int) and
-                          azi <  (azi_end   | int) and
-                          elv >= (elv_start | int) and
-                          elv <  (elv_end   | int)
+                          azi >= (azi_start_value | int) and
+                          azi <  (azi_end_value   | int) and
+                          elv >= (elv_start_value | int) and
+                          elv <  (elv_end_value   | int)
                         )
                         or
                         (elv >= (einbauwinkel | int))
                       }}
                     alias: Innerhalb Beschattungs Parameter
                   - condition: template
-                    value_template: "{{ tempA >= (temp_aussen_min | int) }}"
+                    value_template: "{{ tempA >= (temp_aussen_min_value | int) }}"
                     alias: Aktuelle Temperatur erreicht
                   - condition: template
-                    value_template: "{{ tempV >= (temp_vorhersage_min | int) }}"
+                    value_template: "{{ tempV >= (temp_vorhersage_min_value | int) }}"
                     alias: Vorhersage Temperatur erreicht
                 sequence:
                   - if:
@@ -337,17 +427,17 @@ action:
                         condition: template
                         value_template: |
                           {{
-                            (sonne == 1 and fahrten < (max_fahrten | int))
+                            (sonne == 1 and fahrten < (max_fahrten_value | int))
                           }}
                       - alias: Außerhalb Beschattungs Parameter
                         condition: template
                         value_template: |
                           {{
                               (
-                                azi < (azi_start | int)
-                                or azi > (azi_end | int)
-                                or elv < (elv_start | int)
-                                or elv > (elv_end | int)
+                                azi < (azi_start_value | int)
+                                or azi > (azi_end_value | int)
+                                or elv < (elv_start_value | int)
+                                or elv > (elv_end_value | int)
                               )
                               and elv < (einbauwinkel | int)
                           }}
