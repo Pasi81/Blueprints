@@ -1,21 +1,12 @@
+# Versionierung: name enthält die aktuelle Version. Bei jeder Änderung Name + Beschreibung entsprechend anpassen.
+# Changelog (nur als Kommentar, da Home Assistant Blueprint-Keys hier nicht erlaubt sind):
+# 0.1.1 - 2026-09-12: Eingaben für Azimut, Elevation, Mindesttemperaturen und Max. Fahrten können jetzt als fester Wert oder als verknüpfte Entität konfiguriert werden.
+# 0.1.0 - 2026-09-12: Initiale Version des Blueprints
 blueprint:
   name: Rolladen Automatik V0.1.1
   description: >
-    Zustand & Fahrtenzähler werden in externen Input-Number-Entitäten gespeichert
+    Zustand & Fahrtenzähler werden in externen Input-Number-Entitäten gespeichert. Version 0.1.1.
   domain: automation
-  version: 0.1.1
-  versioning:
-    - "Bei jeder Änderung die Version erhöhen und einen neuen Changelog-Eintrag ergänzen."
-    - "Regel: Patch = kleiner Fix, Minor = neue Funktion, Major = breaking change."
-  changelog:
-    - version: 0.1.1
-      date: '2026-09-12'
-      changes:
-        - Eingaben für Azimut, Elevation, Mindesttemperaturen und Max. Fahrten können jetzt als fester Wert oder als verknüpfte Entität konfiguriert werden.
-    - version: 0.1.0
-      date: '2026-09-12'
-      changes:
-        - Initiale Version des Blueprints
 
   input:
 
